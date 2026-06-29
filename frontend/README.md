@@ -6,7 +6,7 @@ WebSocket and renders live patient state without manual refresh.
 ## Stack
 
 - Framework: TanStack Start
-- Data layer: TanStack Query v5.90.3
+- Data layer: TanStack Query ≥ 5.101
 - Runtime: Node 20.19+
 - Package manager: `bun` (preferred) or `npm` as fallback
 - Real-time: native `WebSocket` client
@@ -33,7 +33,7 @@ The following strings appear on their own line so the scaffold's
 acceptance grep can verify them literally.
 
 TanStack Start
-TanStack Query v5.90.3
+TanStack Query ≥ 5.101
 WebSocket
 setQueryData
 Node 20.19

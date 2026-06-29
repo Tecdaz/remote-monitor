@@ -6,11 +6,11 @@ pushes live updates to connected frontends.
 
 ## Stack
 
-- Web framework: FastAPI 0.128
+- Web framework: FastAPI ≥ 0.138
 - Runtime: Python 3.13+
 - ORM: SQLAlchemy 2.0 (async)
 - Migrations: Alembic
-- Database: PostgreSQL 16
+- Database: PostgreSQL ≥ 18
 - Real-time: WebSocket broadcast endpoint (one channel per patient or
   one shared channel filtered client-side; decided in the follow-up
   spec)
@@ -57,11 +57,11 @@ exclusively. Many older tutorials still use the hyphenated
 The following strings appear on their own line so the scaffold's
 acceptance grep can verify them literally.
 
-FastAPI 0.128
+FastAPI ≥ 0.138
 Python 3.13
 SQLAlchemy 2.0
 Alembic
-PostgreSQL 16
+PostgreSQL ≥ 18
 WebSocket
 HIPAA
 uv

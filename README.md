@@ -23,8 +23,8 @@ versions this monorepo plans for; per-component follow-up changes will
 materialise the actual manifests.
 
 - watch: Wear OS 6 (API 36)
-- backend: FastAPI 0.128, Python 3.13+
-- frontend: TanStack Start + TanStack Query v5.90.3
+- backend: FastAPI ≥ 0.138, Python 3.13+
+- frontend: TanStack Start + TanStack Query ≥ 5.101
 
 ## Pinned versions
 
@@ -37,9 +37,9 @@ watch
 backend
 frontend
 Wear OS 6
-FastAPI 0.128
+FastAPI ≥ 0.138
 TanStack Start
-TanStack Query v5.90.3
+TanStack Query ≥ 5.101
 HIPAA
 WebSocket
 delete-after-echo
