@@ -412,3 +412,195 @@ class TestIngestService:
         assert sorted(audit.context["local_ids"]) == sorted(
             [str(lid1), str(lid2)]
         )
+
+
+# =========================================================================
+# T3.3 — header enforcement + observability
+# =========================================================================
+
+
+class TestHeaderEnforcement:
+    """REQ-INGEST-06 + REQ-OBS-01.
+
+    These are unit tests of the dependency function and the middleware
+    class. The dependency and the new middleware land in T3.3 but are
+    not yet wired into ``app.main`` (T3.6 swaps the inline middleware
+    and logging config). Verifying the integration end-to-end (a real
+    HTTP request triggering a 4xx and observing a log line) lives in
+    the T3.6 wiring tests.
+    """
+
+    async def test_dependency_raises_403_when_header_missing(self) -> None:
+        """No X-Patient-Number -> 403 missing_patient_number."""
+        from app.dependencies import require_patient_number_header
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            await require_patient_number_header(x_patient_number=None)
+        assert exc.value.status_code == 403
+        assert exc.value.detail["code"] == "missing_patient_number"
+
+    async def test_dependency_raises_403_when_header_empty(self) -> None:
+        """Empty X-Patient-Number -> 403 (header is present but blank)."""
+        from app.dependencies import require_patient_number_header
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            await require_patient_number_header(x_patient_number="")
+        assert exc.value.status_code == 403
+
+    async def test_dependency_returns_value_when_header_present(self) -> None:
+        """X-Patient-Number present -> returns the value verbatim."""
+        from app.dependencies import require_patient_number_header
+
+        result = await require_patient_number_header(x_patient_number="P-00042")
+        assert result == "P-00042"
+
+    @staticmethod
+    def _install_recording_logger() -> list[dict]:
+        """Replace ``structlog.get_logger`` in the middleware module
+        with a recorder that captures every log call as a dict.
+
+        Returns the list that will be appended to.
+        """
+        from unittest.mock import MagicMock
+        from app import middleware as middleware_mod
+
+        logs: list[dict] = []
+        mock_logger = MagicMock()
+        mock_logger.info = lambda event, **kw: logs.append(
+            {"event": event, "level": "info", **kw}
+        )
+        mock_logger.error = lambda event, **kw: logs.append(
+            {"event": event, "level": "error", **kw}
+        )
+        mock_logger.exception = lambda event, **kw: logs.append(
+            {"event": event, "level": "error", "exc_info": True, **kw}
+        )
+        middleware_mod.structlog.get_logger = lambda: mock_logger  # type: ignore[assignment]
+        return logs
+
+    @staticmethod
+    def _build_middleware_request(
+        method: str = "GET",
+        path: str = "/x",
+        request_id_header: str | None = None,
+    ):
+        """Build a minimal ASGI request scope + Request object for the
+        middleware unit tests (no FastAPI app needed).
+        """
+        from starlette.requests import Request
+
+        headers = []
+        if request_id_header is not None:
+            headers.append((b"x-request-id", request_id_header.encode()))
+        scope = {
+            "type": "http",
+            "method": method,
+            "path": path,
+            "headers": headers,
+        }
+
+        async def receive() -> dict:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        return Request(scope, receive)
+
+    async def test_middleware_generates_request_id_when_absent(self) -> None:
+        """The middleware mints a UUID4 when no X-Request-ID was sent."""
+        from starlette.responses import PlainTextResponse
+        from app.middleware import XRequestIDMiddleware
+
+        # Install the recording logger so the middleware's log calls
+        # don't blow up against the test's structlog config.
+        self._install_recording_logger()
+
+        request = self._build_middleware_request()
+
+        async def call_next(_request):
+            return PlainTextResponse("ok")
+
+        mw = XRequestIDMiddleware(app=None)  # type: ignore[arg-type]
+        response = await mw.dispatch(request, call_next)
+        # Echoed header is a fresh UUID4 (36 chars).
+        assert "X-Request-ID" in response.headers
+        assert len(response.headers["X-Request-ID"]) == 36
+
+    async def test_middleware_echoes_client_supplied_request_id(self) -> None:
+        """If the client sends X-Request-ID, the server echoes it."""
+        from starlette.responses import PlainTextResponse
+        from app.middleware import XRequestIDMiddleware
+
+        self._install_recording_logger()
+
+        request = self._build_middleware_request(request_id_header="client-id")
+
+        async def call_next(_request):
+            return PlainTextResponse("ok")
+
+        mw = XRequestIDMiddleware(app=None)  # type: ignore[arg-type]
+        response = await mw.dispatch(request, call_next)
+        assert response.headers["X-Request-ID"] == "client-id"
+
+    async def test_middleware_logs_4xx_at_info_without_traceback(self) -> None:
+        """A 4xx response triggers an INFO log, no stack trace."""
+        from starlette.responses import PlainTextResponse
+        from app.middleware import XRequestIDMiddleware
+
+        logs = self._install_recording_logger()
+
+        request = self._build_middleware_request()
+
+        async def call_next(_request):
+            return PlainTextResponse("denied", status_code=403)
+
+        mw = XRequestIDMiddleware(app=None)  # type: ignore[arg-type]
+        await mw.dispatch(request, call_next)
+        info_403 = [
+            l for l in logs
+            if l.get("level") == "info" and l.get("status_code") == 403
+        ]
+        assert info_403, f"Expected INFO log with status_code=403, got: {logs}"
+        # No ERROR log.
+        assert not any(l.get("level") == "error" for l in logs)
+
+    async def test_middleware_logs_5xx_at_error_with_traceback(self) -> None:
+        """A 5xx response triggers an ERROR log with exc_info."""
+        from app.middleware import XRequestIDMiddleware
+
+        logs = self._install_recording_logger()
+
+        request = self._build_middleware_request()
+
+        async def call_next(_request):
+            raise RuntimeError("simulated commit failure")
+
+        mw = XRequestIDMiddleware(app=None)  # type: ignore[arg-type]
+        with pytest.raises(RuntimeError, match="simulated commit failure"):
+            await mw.dispatch(request, call_next)
+        error_logs = [l for l in logs if l.get("level") == "error"]
+        assert error_logs, f"Expected ERROR log, got: {logs}"
+        # The middleware logs the exception with exc_info=True on ERROR.
+        assert any(l.get("exc_info") for l in error_logs)
+
+    async def test_middleware_unbinds_request_id_after_request(self) -> None:
+        """The structlog request_id contextvar is cleared after the call
+        so the next request doesn't inherit a stale id (REQ-OBS-01)."""
+        import structlog
+        from starlette.responses import PlainTextResponse
+        from app.middleware import XRequestIDMiddleware
+
+        # Logger recorder (the test doesn't care about the log content,
+        # only that dispatch completes and unbind runs).
+        self._install_recording_logger()
+
+        request = self._build_middleware_request()
+
+        async def call_next(_request):
+            return PlainTextResponse("ok")
+
+        mw = XRequestIDMiddleware(app=None)  # type: ignore[arg-type]
+        await mw.dispatch(request, call_next)
+        # After dispatch returns, no request_id should be bound.
+        ctx = structlog.contextvars.get_contextvars()
+        assert "request_id" not in ctx

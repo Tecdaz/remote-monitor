@@ -24,12 +24,32 @@ os.environ.setdefault(
 )
 
 import pytest
+import structlog
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import AsyncSessionLocal
 from app.main import app
+
+
+# Replace the ``PrintLoggerFactory`` configured by ``app.main`` with the
+# stdlib integration so log calls that pass ``method=`` / ``path=`` /
+# ``status_code=`` actually go through. ``PrintLogger`` is the dev
+# default but its ``msg()`` does not accept keyword arguments, which
+# breaks the middleware's structured log calls in tests. stdlib
+# accepts kwargs as the log record's ``extra`` dict, which is what
+# ``structlog.testing.capture_logs()`` expects.
+import logging as _logging
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(_logging.INFO),
+    logger_factory=structlog.stdlib.LoggerFactory(),
+)
 
 
 @pytest.fixture
