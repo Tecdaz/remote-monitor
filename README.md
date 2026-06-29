@@ -99,3 +99,16 @@ lives in these follow-up SDD changes, in rough dependency order:
 
 Each of those changes is a separate reviewable work unit with its own
 spec, design, and verification phase.
+
+## API contract
+
+The wire contract between the watch, backend, and frontend lives in
+`contracts/`. It is the source of truth — Pydantic models on the
+backend and TypeScript types on the frontend are derived from it
+(or hand-written from it for the WebSocket).
+
+- **D1**: OpenAPI 3.1.x for the REST spec
+- **D2**: `contracts/openapi.yaml` is the source of truth
+- **D3**: Hand-written TypeScript types for the WebSocket protocol
+- **D4**: Per-patient WebSocket URL — the URL is the subscription
+- **D5**: Client-generated `local_id` (UUID v4) as the idempotency key

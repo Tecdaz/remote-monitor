@@ -1,0 +1,89 @@
+asyncapi: 3.0.0
+info:
+  title: Remote Monitor WebSocket API
+  version: "1.0.0"
+  description: |
+    WebSocket protocol for the remote patient monitoring PoC.
+
+    D4: the URL IS the subscription. The frontend opens a connection
+    to `wss://{host}/ws/patients/{patient_id}`; on connect, the server
+    immediately sends `{type: "subscribed", patient_id: "..."}`. There
+    are no `subscribe`/`unsubscribe` frames. The server closes the
+    socket if any client frame addresses a different `patient_id`.
+
+    Heartbeat: app-level ping/pong every 30s; close on no pong for 60s.
+servers:
+  production:
+    host: api.example.com
+    pathname: /ws
+    protocol: wss
+    description: Production
+  development:
+    host: localhost:8000
+    pathname: /ws
+    protocol: ws
+    description: Local development
+channels:
+  patientMeasurements:
+    address: 'patient/{patient_id}/measurements'
+    description: |
+      Per-patient channel. The `patient_id` parameter becomes part of
+      the URL — `wss://{host}/ws/patients/{patient_id}/measurements`.
+    parameters:
+      patient_id:
+        description: Opaque patient UUID.
+        examples: [f47ac10b-58cc-4372-a567-0e02b2c3d479]
+    bindings:
+      ws:
+        bindingVersion: '0.1.0'
+operations:
+  onMeasurement:
+    action: receive
+    channel:
+      $ref: '#/channels/patientMeasurements'
+    summary: Server pushes a new measurement to subscribed clients
+    description: Pushed by the server whenever a new measurement is persisted for this patient.
+    messages:
+      - $ref: '#/components/messages/WsMeasurementEvent'
+components:
+  messages:
+    WsMeasurementEvent:
+      name: WsMeasurementEvent
+      title: New measurement persisted
+      summary: Server push when a measurement is persisted for this patient
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/WsMeasurementEventPayload'
+    WsPing:
+      name: WsPing
+      title: App-level ping
+      summary: App-level heartbeat from the client
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/WsPingPayload'
+    WsPong:
+      name: WsPong
+      title: App-level pong
+      summary: Server reply to a ping
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/WsPongPayload'
+  schemas:
+    WsMeasurementEventPayload:
+      type: object
+      required: [type, data]
+      properties:
+        type: { type: string, enum: [measurement.created] }
+        data: { $ref: 'https://raw.githubusercontent.com/remote-monitor/contracts/main/openapi.yaml#/components/schemas/Measurement' }
+    WsPingPayload:
+      type: object
+      required: [type, ts]
+      properties:
+        type: { type: string, enum: [ping] }
+        ts:   { type: integer, description: "Client timestamp (epoch ms)." }
+    WsPongPayload:
+      type: object
+      required: [type, ts]
+      properties:
+        type: { type: string, enum: [pong] }
+        ts:   { type: integer, description: "Server timestamp (epoch ms)." }

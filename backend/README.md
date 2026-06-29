@@ -77,3 +77,12 @@ endpoint, audit-log middleware, encryption-at-rest config, and
 integration tests for the sync protocol — lands in the
 `scaffold-backend` SDD change. This README is the placeholder for that
 work.
+
+## API contract
+
+The backend reads `contracts/openapi.yaml` as source of truth.
+Pydantic models are derived from the JSON Schemas in the OpenAPI
+spec. The `delete-after-echo` invariant is enforced by the
+`POST /api/v1/patients/{patient_id}/measurements` endpoint's
+`accepted_ids` response — the watch deletes local Room rows only
+for ids in that array.

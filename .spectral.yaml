@@ -1,0 +1,10 @@
+extends:
+  - spectral:oas
+  - spectral:asyncapi
+
+rules:
+  info-contact-required: error
+  operation-description: error
+  operation-summary: error
+  no-eval-in-markdown: error
+  no-$ref-siblings: error

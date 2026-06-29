@@ -1,0 +1,207 @@
+openapi: 3.1.0
+info:
+  title: Remote Monitor API
+  version: "1.0.0"
+  description: "REST API for the remote patient monitoring PoC. HIPAA-like posture (POC, not implemented control): encryption in-transit and at-rest, audit log, defined retention, PII/clinical separation (`patient_number` is the only PII; clinical records use opaque `patient_id` UUIDs). Critical invariant: `delete-after-echo` — the watch only deletes a locally stored measurement after the backend echoes its `local_id` back in `accepted_ids`."
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development (frontend at http://localhost:5173, CORS dev-only)
+  - url: https://api.example.com/api/v1
+    description: Production placeholder
+tags:
+  - name: watch
+    description: Endpoints called by the Wear OS watch
+  - name: frontend
+    description: Endpoints called by the TanStack dashboard
+  - name: admin
+    description: Administrative operations (future)
+paths:
+  /api/v1/patients:
+    post:
+      tags: [watch]
+      operationId: registerPatient
+      summary: Register a new patient (watch self-registration)
+      description: "Watch self-registration. Operator types a `patient_number`; the watch POSTs it with device metadata. 201 with assigned `patient_id`; 409 with `Problem` on duplicate."
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PatientRegistration" } } }
+      responses:
+        "201": { description: Patient registered, content: { application/json: { schema: { $ref: "#/components/schemas/Patient" } } } }
+        "409": { description: Patient number already registered, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+    get:
+      tags: [frontend, admin]
+      operationId: listPatients
+      summary: List all patients
+      description: Returns every registered patient. PoC posture — no pagination, no filter.
+      security: []
+      responses:
+        "200":
+          description: List of patients
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/Patient" } } }
+  /api/v1/patients/{patient_id}:
+    parameters: [{ $ref: "#/components/parameters/PatientIdPath" }]
+    get:
+      tags: [frontend, admin]
+      operationId: getPatient
+      summary: Fetch a single patient
+      description: Returns the `Patient` record. 404 with `Problem` if not found.
+      security: []
+      responses:
+        "200": { description: The patient, content: { application/json: { schema: { $ref: "#/components/schemas/Patient" } } } }
+        "404": { description: Patient not found, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+    delete:
+      tags: [admin]
+      operationId: deactivatePatient
+      summary: Deactivate a patient (RESERVED)
+      description: Out of scope for this change; URL reserved to lock the routing surface. Returns 501.
+      security: []
+      responses:
+        "501": { description: Not implemented, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+  /api/v1/patients/{patient_id}/measurements:
+    parameters: [{ $ref: "#/components/parameters/PatientIdPath" }]
+    post:
+      tags: [watch]
+      operationId: uploadMeasurements
+      summary: Upload a batch of measurements (delete-after-echo endpoint)
+      description: "The watch uploads a batch. `delete-after-echo`: the watch deletes local Room rows ONLY for `local_id`s in `accepted_ids`; rejected items are preserved. The `X-Patient-Number` header MUST match the `{patient_id}` path parameter; otherwise 403. The backend MUST emit an audit entry `{actor, action: \"measurement.create\", count, ts}` for every 2xx batch POST. Body is 1-1000 `MeasurementBatch` items; 413 otherwise."
+      security: [{ PatientNumberHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              maxItems: 1000
+              items: { $ref: "#/components/schemas/MeasurementBatch" }
+      responses:
+        "200": { description: "Batch processed; the watch deletes only the `local_id`s in `accepted_ids`", content: { application/json: { schema: { $ref: "#/components/schemas/BatchResponse" } } } }
+        "403": { description: Missing or mismatched `X-Patient-Number` header, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+        "413": { description: Batch exceeds 1000 items, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+    get:
+      tags: [frontend, admin]
+      operationId: listMeasurements
+      summary: List historical measurements (cursor-paginated)
+      description: "Cursor-paginated. Pass `cursor` from the previous response's `next_cursor` to fetch the next page. `next_cursor` is `null` when no more pages."
+      security: []
+      parameters:
+        - { in: query, name: from,   schema: { type: string, format: date-time } }
+        - { in: query, name: to,     schema: { type: string, format: date-time } }
+        - { in: query, name: cursor, schema: { type: string } }
+        - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
+      responses:
+        "200": { description: A page of measurements, content: { application/json: { schema: { $ref: "#/components/schemas/MeasurementPage" } } } }
+  /api/v1/measurements/{measurement_id}:
+    get:
+      tags: [frontend, admin]
+      operationId: getMeasurement
+      summary: Fetch a single measurement by ID
+      description: Direct lookup of a stored measurement. Used by the frontend for audit/inspection drill-down.
+      security: []
+      parameters:
+        - { in: path, name: measurement_id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: The measurement, content: { application/json: { schema: { $ref: "#/components/schemas/Measurement" } } } }
+        "404": { description: Measurement not found, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+  /api/v1/health:
+    get:
+      tags: [admin]
+      operationId: healthCheck
+      summary: Liveness check
+      description: "No authentication. Returns a status of `ok` when the service is up."
+      security: []
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties: { status: { type: string, enum: [ok] } }
+components:
+  securitySchemes:
+    PatientNumberHeader:
+      type: apiKey
+      in: header
+      name: X-Patient-Number
+      description: "Watch identification header. Must match the `{patient_id}` path parameter on `POST /patients/{patient_id}/measurements`."
+  parameters:
+    PatientIdPath:
+      in: path
+      name: patient_id
+      required: true
+      schema: { type: string, format: uuid }
+      description: Opaque patient UUID. The only link from clinical data to PII.
+  schemas:
+    Patient:
+      type: object
+      description: "A registered patient. `patient_number` is the only PII field."
+      required: [patient_id, patient_number, device_model, os_version, created_at, is_active]
+      properties:
+        patient_id:    { type: string, format: uuid, description: "Server-assigned opaque UUID. The only link from clinical records to PII." }
+        patient_number: { type: string, description: "PII — the operator-typed identifier (e.g. P-00042). Handle per HIPAA-like retention policy.", example: P-00042 }
+        device_model:  { type: string, description: "Watch hardware model.", example: Samsung Galaxy Watch 4 }
+        os_version:    { type: string, description: "Watch OS version string.", example: "Wear OS 6 (API 36)" }
+        created_at:    { type: string, format: date-time, description: "Server-assigned registration timestamp." }
+        is_active:     { type: boolean, description: "Soft-delete flag. `false` means deactivated." }
+    PatientRegistration:
+      type: object
+      description: "Payload for `POST /patients`. Omits server-assigned fields."
+      required: [patient_number, device_model, os_version]
+      properties:
+        patient_number: { type: string, description: "PII — the operator-typed identifier.", example: P-00042 }
+        device_model:   { type: string, example: Samsung Galaxy Watch 4 }
+        os_version:     { type: string, example: "Wear OS 6 (API 36)" }
+    MeasurementBatch:
+      type: object
+      description: "One measurement submitted by the watch. Either or both vital signs may be null if the sensor failed."
+      required: [local_id, timestamp]
+      properties:
+        local_id:     { type: string, format: uuid, description: "Client-generated UUID v4. Idempotency key. The backend unique-constraints on `(patient_id, local_id)`." }
+        timestamp:    { type: string, format: date-time, description: "ISO 8601 with timezone, within the last 24 hours and not more than 5 minutes in the future." }
+        heart_rate_bpm: { type: [integer, "null"], minimum: 1, maximum: 299, description: "Heart rate in BPM. `null` if the sensor failed." }
+        spo2_percent:   { type: [number, "null"], exclusiveMinimum: 0, maximum: 100, description: "SpO2 percentage (0-100). `null` if the sensor failed." }
+    Measurement:
+      allOf:
+        - $ref: "#/components/schemas/MeasurementBatch"
+        - type: object
+          required: [id, patient_id, timestamp, received_at]
+          properties:
+            id:          { type: string, format: uuid, description: "Server-assigned measurement ID." }
+            patient_id:  { type: string, format: uuid, description: "Opaque UUID; the only link from clinical data to PII is via the `Patient` record." }
+            received_at: { type: string, format: date-time, description: "Server-assigned ingestion timestamp." }
+    BatchResponse:
+      type: object
+      description: "The watch deletes local Room rows ONLY for `local_id`s in `accepted_ids` (delete-after-echo)."
+      required: [accepted_ids, rejected]
+      properties:
+        accepted_ids: { type: array, items: { type: string, format: uuid }, description: "The `local_id`s the backend persisted (or no-op-deduped). The watch deletes these." }
+        rejected:     { type: array, items: { $ref: "#/components/schemas/RejectedMeasurement" } }
+    RejectedMeasurement:
+      type: object
+      description: "One item the backend refused. The watch keeps the Room row for inspection/retry."
+      required: [local_id, reason]
+      properties:
+        local_id: { type: string, format: uuid }
+        reason:   { type: string, description: "Human-readable reason. Not a code (PoC)." }
+    Problem:
+      type: object
+      description: "RFC 7807-style problem detail."
+      required: [detail, code]
+      properties:
+        detail: { type: string }
+        code:   { type: string, description: "Stable machine-readable error code." }
+    MeasurementPage:
+      type: object
+      description: "A cursor-paginated page of measurements."
+      required: [items, next_cursor]
+      properties:
+        items:       { type: array, items: { $ref: "#/components/schemas/Measurement" } }
+        next_cursor: { type: [string, "null"], description: "Opaque cursor for the next page. `null` when no more pages." }

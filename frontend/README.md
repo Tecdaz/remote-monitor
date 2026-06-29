@@ -47,3 +47,11 @@ TanStack Query client setup, WebSocket subscriber hook, the
 `setQueryData` updater, the patient list and detail views, accessibility
 audit, and component tests — lands in the `scaffold-frontend` SDD
 change. This README is the placeholder for that work.
+
+## API contract
+
+The frontend consumes `contracts/openapi.yaml` for REST types (via
+`openapi-typescript` in the upcoming frontend change) and
+`contracts/websocket-types.ts` for WebSocket types. The WebSocket
+URL is `wss://{host}/ws/patients/{patient_id}` — the URL is the
+subscription.
