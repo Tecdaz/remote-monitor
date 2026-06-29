@@ -3,6 +3,13 @@ info:
   title: Remote Monitor API
   version: "1.0.0"
   description: "REST API for the remote patient monitoring PoC. HIPAA-like posture (POC, not implemented control): encryption in-transit and at-rest, audit log, defined retention, PII/clinical separation (`patient_number` is the only PII; clinical records use opaque `patient_id` UUIDs). Critical invariant: `delete-after-echo` — the watch only deletes a locally stored measurement after the backend echoes its `local_id` back in `accepted_ids`."
+  contact:
+    name: remote-monitor maintainers
+    email: maintainers@remote-monitor.local
+    url: https://github.com/remote-monitor/remote-monitor
+  license:
+    name: Proprietary (PoC)
+    url: https://github.com/remote-monitor/remote-monitor/blob/main/LICENSE
 servers:
   - url: http://localhost:8000/api/v1
     description: Local development (frontend at http://localhost:5173, CORS dev-only)
