@@ -37,8 +37,10 @@ from app.main import app
 # the measurements surface we need it mounted on the test app; do so
 # here so all test files can use the shared ``client`` fixture.
 from app.routers.measurements import router as measurements_router  # noqa: E402
+from app.routers.patients import router as patients_router  # noqa: E402
 
 app.include_router(measurements_router)
+app.include_router(patients_router)
 
 
 # Replace the ``PrintLoggerFactory`` configured by ``app.main`` with the
