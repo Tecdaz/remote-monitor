@@ -32,6 +32,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import AsyncSessionLocal
 from app.main import app
 
+# T3.4: the measurements router lives outside ``app.main`` until T3.6
+# (when main.py is rewritten to wire every router). For HTTP tests of
+# the measurements surface we need it mounted on the test app; do so
+# here so all test files can use the shared ``client`` fixture.
+from app.routers.measurements import router as measurements_router  # noqa: E402
+
+app.include_router(measurements_router)
+
 
 # Replace the ``PrintLoggerFactory`` configured by ``app.main`` with the
 # stdlib integration so log calls that pass ``method=`` / ``path=`` /

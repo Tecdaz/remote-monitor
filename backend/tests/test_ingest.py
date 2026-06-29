@@ -604,3 +604,249 @@ class TestHeaderEnforcement:
         # After dispatch returns, no request_id should be bound.
         ctx = structlog.contextvars.get_contextvars()
         assert "request_id" not in ctx
+
+
+# =========================================================================
+# T3.4 — measurements router end-to-end
+# =========================================================================
+
+
+def _batch_items(n: int) -> list[dict]:
+    """Build a list of N valid MeasurementBatch dicts."""
+    return [_valid_item() for _ in range(n)]
+
+
+class TestMeasurementsRouter:
+    """End-to-end HTTP tests for /api/v1/patients/{id}/measurements.
+
+    Covers REQ-INGEST-01/02/05 and REQ-READ-01/03. The router is
+    mounted on the test app by ``tests/conftest.py``; the production
+    wiring into ``app.main`` lands in T3.6.
+    """
+
+    async def test_post_1000_items_returns_200(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-INGEST-05: exactly 1000 items -> 200."""
+        path_pid = uuid4()
+        response = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(1000),
+            headers={"X-Patient-Number": "P-BATCH-1"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["accepted_ids"]) == 1000
+        assert body["rejected"] == []
+
+    async def test_post_1001_items_returns_413(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-INGEST-05: 1001 items -> 413 batch_too_large."""
+        path_pid = uuid4()
+        response = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(1001),
+            headers={"X-Patient-Number": "P-BATCH-2"},
+        )
+        assert response.status_code == 413
+        assert response.json()["detail"]["code"] == "batch_too_large"
+
+    async def test_post_0_items_returns_400(
+        self, client: AsyncClient
+    ) -> None:
+        """Empty batch -> 400 empty_batch."""
+        path_pid = uuid4()
+        response = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=[],
+            headers={"X-Patient-Number": "P-BATCH-3"},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "empty_batch"
+
+    async def test_post_without_x_patient_number_returns_403(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-INGEST-06: missing X-Patient-Number -> 403."""
+        path_pid = uuid4()
+        response = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(3),
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "missing_patient_number"
+
+    async def test_post_with_mismatched_x_patient_number_returns_403(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-INGEST-06: path != resolved patient_id -> 403."""
+        # Register patient with patient_number P-MISMATCH.
+        pid_a = uuid4()
+        await client.post(
+            f"/api/v1/patients/{pid_a}/measurements",
+            json=_batch_items(1),
+            headers={"X-Patient-Number": "P-MISMATCH"},
+        )
+        # Now POST again with the same X-Patient-Number but a different
+        # path patient_id.
+        pid_b = uuid4()
+        response = await client.post(
+            f"/api/v1/patients/{pid_b}/measurements",
+            json=_batch_items(1),
+            headers={"X-Patient-Number": "P-MISMATCH"},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "patient_number_mismatch"
+
+    async def test_post_with_new_patient_auto_registers(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-INGEST-07: new X-Patient-Number auto-registers the patient."""
+        path_pid = uuid4()
+        response = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(2),
+            headers={
+                "X-Patient-Number": "P-NEW",
+                "X-Device-Model": "Samsung Galaxy Watch 4",
+                "X-OS-Version": "Wear OS 6 (API 36)",
+            },
+        )
+        assert response.status_code == 200
+        assert len(response.json()["accepted_ids"]) == 2
+        # Verify auto-register via a follow-up GET (needs the patient
+        # to exist; otherwise 404).
+        get_resp = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        assert get_resp.status_code == 200
+
+    async def test_post_mixed_valid_and_invalid_items(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-INGEST-01: invalid item rejected, valid items accepted."""
+        path_pid = uuid4()
+        items = [_valid_item(), _invalid_item(), _valid_item()]
+        response = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=items,
+            headers={"X-Patient-Number": "P-MIXED"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["accepted_ids"]) == 2
+        assert len(body["rejected"]) == 1
+        assert body["rejected"][0]["reason"].startswith("validation error")
+
+    async def test_get_on_unknown_patient_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-READ-03: GET measurements for unknown patient -> 404."""
+        unknown = uuid4()
+        response = await client.get(
+            f"/api/v1/patients/{unknown}/measurements"
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "patient_not_found"
+
+    async def test_get_returns_measurements_in_desc_order(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-READ-01: measurements sorted by timestamp DESC."""
+        path_pid = uuid4()
+        # First auto-register the patient with a small batch.
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(5),
+            headers={"X-Patient-Number": "P-LIST-1"},
+        )
+        response = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["items"]) == 5
+        # All items have the same timestamp (test fixtures), so order
+        # is by id DESC as the secondary key.
+        ts_values = [item["timestamp"] for item in body["items"]]
+        assert ts_values == sorted(ts_values, reverse=True)
+        # next_cursor is null when there are no more pages.
+        assert body["next_cursor"] is None
+
+    async def test_get_pagination_with_cursor(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-READ-01: 250 items, limit=100 -> 3 pages with no overlap."""
+        path_pid = uuid4()
+        # Auto-register the patient first with one item (so the patient exists).
+        # We need 250 measurements total.
+        items = _batch_items(250)
+        # POST in chunks of 1000 (the max) to fit all 250.
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=items,
+            headers={"X-Patient-Number": "P-PAGE"},
+        )
+
+        # Page 1: limit=100.
+        r1 = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements?limit=100"
+        )
+        assert r1.status_code == 200
+        page1 = r1.json()
+        assert len(page1["items"]) == 100
+        assert page1["next_cursor"] is not None
+
+        # Page 2.
+        r2 = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements",
+            params={"limit": 100, "cursor": page1["next_cursor"]},
+        )
+        assert r2.status_code == 200
+        page2 = r2.json()
+        assert len(page2["items"]) == 100
+        assert page2["next_cursor"] is not None
+
+        # No overlap between page1 and page2.
+        ids1 = {item["id"] for item in page1["items"]}
+        ids2 = {item["id"] for item in page2["items"]}
+        assert ids1.isdisjoint(ids2)
+
+        # Page 3 should have the remaining 50.
+        r3 = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements",
+            params={"limit": 100, "cursor": page2["next_cursor"]},
+        )
+        assert r3.status_code == 200
+        page3 = r3.json()
+        assert len(page3["items"]) == 50
+        assert page3["next_cursor"] is None
+
+    async def test_post_idempotency_via_http(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-INGEST-04: re-POST the same batch -> same accepted_ids,
+        no duplicate rows in the DB."""
+        path_pid = uuid4()
+        items = _batch_items(3)
+        r1 = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=items,
+            headers={"X-Patient-Number": "P-IDEMP"},
+        )
+        r2 = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=items,
+            headers={"X-Patient-Number": "P-IDEMP"},
+        )
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        assert sorted(r1.json()["accepted_ids"]) == sorted(
+            r2.json()["accepted_ids"]
+        )
+        # GET back to confirm only 3 rows persisted.
+        r3 = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        assert len(r3.json()["items"]) == 3

@@ -1,12 +1,13 @@
 """Common response envelopes (RFC 7807 Problem, paginated pages)."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from pydantic import BaseModel, ConfigDict, Field
 
-if TYPE_CHECKING:
-    from app.schemas.measurement import Measurement
+# Runtime import (not TYPE_CHECKING) so Pydantic v2 can resolve the
+# forward reference ``Measurement`` when FastAPI tries to validate a
+# ``MeasurementPage`` response. Without it, Pydantic raises
+# ``PydanticUserError: MeasurementPage is not fully defined``.
+from app.schemas.measurement import Measurement  # noqa: F401
 
 
 class Problem(BaseModel):
@@ -26,7 +27,7 @@ class MeasurementPage(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    items: list["Measurement"] = Field(
+    items: list[Measurement] = Field(
         default_factory=list,
         description="The page of measurements.",
     )
