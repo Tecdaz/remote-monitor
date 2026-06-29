@@ -1,0 +1,18 @@
+# uv-managed virtualenv (created by `uv sync`)
+.venv/
+
+# Python build / cache artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Local environment overrides
+.env
+.env.local
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
