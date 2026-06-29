@@ -76,19 +76,23 @@ def _alembic(*args: str) -> None:
 
 @pytest.fixture
 async def clean_db() -> AsyncIterator[None]:
-    """Wipe the DB to a known state before/after the test.
+    """Wipe the DB to a known state before the test.
 
     Runs ``alembic downgrade base`` then ``alembic upgrade head`` to
     guarantee every test sees the same starting point. Skips the
     fixture entirely when docker is missing so the test can xfail
     cleanly.
+
+    The teardown intentionally does NOT downgrade to base. The
+    conftest's per-test ``TRUNCATE`` is the per-test isolation
+    mechanism, and leaving the DB at head keeps the test suite
+    re-runnable without a manual ``alembic upgrade head`` step.
     """
     if not _pg_container_running():
         pytest.xfail("postgres container not running; docker compose not available")
     _alembic("downgrade", "base")
     _alembic("upgrade", "head")
     yield
-    _alembic("downgrade", "base")
 
 
 async def test_schemas_pgcrypto_and_unique_constraint(clean_db: None) -> None:
