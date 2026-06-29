@@ -1,17 +1,21 @@
 """Measurements HTTP routes (REQ-INGEST-01..05, REQ-READ-01, REQ-READ-03).
 
-Two endpoints:
+Two endpoints (plus the contract-aligned ``GET /measurements/{id}``):
 
-- ``POST /api/v1/patients/{patient_id}/measurements`` \u2014
+- ``POST /api/v1/patients/{patient_id}/measurements`` —
   ``uploadMeasurements``. The ``X-Patient-Number`` header is enforced
   by ``require_patient_number_header``; the body is a 1-1000 item
   list of ``MeasurementBatch`` dicts; per-item Pydantic validation
   happens inside the service so bad items are rejected individually
   rather than failing the whole batch.
-- ``GET /api/v1/patients/{patient_id}/measurements`` \u2014
+- ``GET /api/v1/patients/{patient_id}/measurements`` —
   ``listMeasurements``. Cursor-paginated (DESC by ``(timestamp, id)``
-  for stable keyset pagination). 404 with ``Problem`` if the patient
-  is unknown.
+  for stable keyset pagination). Accepts ``from`` and ``to``
+  date-time query parameters to filter the result window. 404 with
+  ``Problem`` if the patient is unknown.
+- ``GET /api/v1/measurements/{measurement_id}`` — ``getMeasurement``.
+  Direct lookup of a single stored measurement. 404 with ``Problem``
+  if not found.
 """
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, Query, status
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -102,7 +106,7 @@ async def upload_measurements(
     )
 
 
-# --- GET -------------------------------------------------------------------
+# --- GET (list) ------------------------------------------------------------
 
 
 @router.get(
@@ -112,6 +116,15 @@ async def upload_measurements(
 )
 async def list_measurements(
     patient_id: UUID = Path(...),
+    from_: datetime | None = Query(
+        None,
+        alias="from",
+        description="Inclusive lower bound for measurement timestamp (ISO 8601).",
+    ),
+    to: datetime | None = Query(
+        None,
+        description="Inclusive upper bound for measurement timestamp (ISO 8601).",
+    ),
     cursor: str | None = None,
     limit: int = DEFAULT_LIMIT,
     session: AsyncSession = Depends(get_session),
@@ -120,8 +133,12 @@ async def list_measurements(
 
     Keyset pagination: the cursor encodes the last item's
     ``(timestamp, id)`` and the next page returns rows strictly
-    ``< (timestamp, id)`` from the cursor \u2014 stable under duplicate
+    ``< (timestamp, id)`` from the cursor — stable under duplicate
     timestamps because ``id`` is the tiebreaker.
+
+    Optional ``from`` and ``to`` query parameters bound the
+    measurement timestamp window. Both are inclusive; both are
+    optional. ``from`` must be <= ``to`` when both are supplied.
     """
     if limit < 1 or limit > MAX_LIMIT:
         raise HTTPException(
@@ -129,6 +146,14 @@ async def list_measurements(
             detail={
                 "detail": f"limit must be between 1 and {MAX_LIMIT}",
                 "code": "invalid_limit",
+            },
+        )
+    if from_ is not None and to is not None and from_ > to:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "detail": "'from' must be <= 'to'",
+                "code": "invalid_range",
             },
         )
 
@@ -149,6 +174,10 @@ async def list_measurements(
     stmt = select(ClinicalMeasurement).where(
         ClinicalMeasurement.patient_id == patient_id
     )
+    if from_ is not None:
+        stmt = stmt.where(ClinicalMeasurement.timestamp >= from_)
+    if to is not None:
+        stmt = stmt.where(ClinicalMeasurement.timestamp <= to)
     if cursor:
         try:
             cursor_ts, cursor_id = _decode_cursor(cursor)
@@ -188,3 +217,45 @@ async def list_measurements(
         last = page[-1]
         next_cursor = _encode_cursor(last.timestamp, last.id)
     return MeasurementPage(items=items, next_cursor=next_cursor)
+
+
+# --- GET (single) ----------------------------------------------------------
+
+
+@router.get(
+    "/api/v1/measurements/{measurement_id}",
+    response_model=Measurement,
+    responses={404: {"description": "Measurement not found"}},
+)
+async def get_measurement(
+    measurement_id: UUID = Path(...),
+    session: AsyncSession = Depends(get_session),
+) -> Measurement:
+    """Direct lookup of a single measurement by ID.
+
+    Returns 404 with ``Problem`` if the measurement does not exist.
+    """
+    row = (
+        await session.execute(
+            select(ClinicalMeasurement).where(
+                ClinicalMeasurement.id == measurement_id
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "detail": "Measurement not found",
+                "code": "measurement_not_found",
+            },
+        )
+    return Measurement(
+        id=row.id,
+        patient_id=row.patient_id,
+        local_id=row.local_id,
+        timestamp=row.timestamp,
+        received_at=row.received_at,
+        heart_rate_bpm=row.heart_rate_bpm,
+        spo2_percent=row.spo2_percent,
+    )

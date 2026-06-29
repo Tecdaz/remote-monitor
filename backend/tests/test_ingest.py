@@ -850,3 +850,100 @@ class TestMeasurementsRouter:
             f"/api/v1/patients/{path_pid}/measurements"
         )
         assert len(r3.json()["items"]) == 3
+
+    async def test_get_with_from_to_filters(
+        self, client: AsyncClient
+    ) -> None:
+        """Contract alignment: ``from`` and ``to`` query params bound
+        the measurement timestamp window (openapi.yaml#listMeasurements).
+        """
+        path_pid = uuid4()
+        # Auto-register the patient with 5 items.
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(5),
+            headers={"X-Patient-Number": "P-RANGE"},
+        )
+        # All items have the same timestamp in the fixture, so the
+        # window must include that timestamp to return any items.
+        from datetime import datetime, timezone
+        far_past = "2000-01-01T00:00:00+00:00"
+        far_future = "2100-01-01T00:00:00+00:00"
+        response = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements",
+            params={"from": far_past, "to": far_future, "limit": 100},
+        )
+        assert response.status_code == 200
+        assert len(response.json()["items"]) == 5
+
+    async def test_get_with_narrow_window_excludes_items(
+        self, client: AsyncClient
+    ) -> None:
+        """``from`` AFTER all items' timestamp -> empty page."""
+        path_pid = uuid4()
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(3),
+            headers={"X-Patient-Number": "P-RANGE-EMPTY"},
+        )
+        response = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements",
+            params={"from": "2100-01-01T00:00:00+00:00"},
+        )
+        assert response.status_code == 200
+        assert response.json()["items"] == []
+
+    async def test_get_with_from_after_to_returns_400(
+        self, client: AsyncClient
+    ) -> None:
+        """``from`` > ``to`` -> 400 with invalid_range code."""
+        path_pid = uuid4()
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(1),
+            headers={"X-Patient-Number": "P-RANGE-INV"},
+        )
+        response = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements",
+            params={"from": "2100-01-01T00:00:00+00:00",
+                    "to": "2000-01-01T00:00:00+00:00"},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "invalid_range"
+
+    async def test_get_measurement_by_id_returns_200(
+        self, client: AsyncClient
+    ) -> None:
+        """Contract alignment: GET /api/v1/measurements/{id} -> 200."""
+        path_pid = uuid4()
+        post = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=_batch_items(2),
+            headers={"X-Patient-Number": "P-SINGLE"},
+        )
+        # Pull the list to get the server-assigned IDs.
+        listed = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        items = listed.json()["items"]
+        assert len(items) == 2
+        # Fetch the first by ID.
+        target_id = items[0]["id"]
+        response = await client.get(
+            f"/api/v1/measurements/{target_id}"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == target_id
+        assert body["patient_id"] == str(path_pid)
+
+    async def test_get_measurement_by_id_unknown_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        """Contract alignment: unknown measurement_id -> 404."""
+        unknown = uuid4()
+        response = await client.get(
+            f"/api/v1/measurements/{unknown}"
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "measurement_not_found"
