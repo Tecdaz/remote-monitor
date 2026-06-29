@@ -1,0 +1,39 @@
+# Local development stack for the remote-monitor backend.
+#
+# PR1 only wires up the empty `backend` service and its `postgres`
+# dependency. Routers, migrations, and the WebSocket surface land in
+# PR2 / PR3 / PR4 respectively.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: remote_monitor
+      # Postgres 18 moved PGDATA into a versioned subdirectory; mount
+      # the parent so the image can manage the subdirectory itself.
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d remote_monitor"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      APP_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/remote_monitor
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
