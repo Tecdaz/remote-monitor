@@ -25,10 +25,10 @@ tags:
 paths:
   /api/v1/patients:
     post:
-      tags: [watch]
+      tags: [watch, admin]
       operationId: registerPatient
-      summary: Register a new patient (watch self-registration)
-      description: "Watch self-registration. Operator types a `patient_number`; the watch POSTs it with device metadata. 201 with assigned `patient_id`; 409 with `Problem` on duplicate."
+      summary: Explicitly pre-register a patient (optional)
+      description: "Optional pre-registration. The watch usually auto-registers on the first `uploadMeasurements` (see `X-Patient-Number` auto-register behavior). Use this endpoint only when explicit pre-registration is required (e.g., admin onboarding before the watch arrives). 201 with assigned `patient_id`; 409 with `Problem` on duplicate."
       security: []
       requestBody:
         required: true
@@ -39,8 +39,8 @@ paths:
     get:
       tags: [frontend, admin]
       operationId: listPatients
-      summary: List all patients
-      description: Returns every registered patient. PoC posture — no pagination, no filter.
+      summary: List active patients
+      description: Returns active patients only (`is_active=true`). PoC posture — no pagination. Inactive patients are visible via `GET /api/v1/patients/{patient_id}`.
       security: []
       responses:
         "200":
@@ -76,7 +76,10 @@ paths:
       tags: [watch]
       operationId: uploadMeasurements
       summary: Upload a batch of measurements (delete-after-echo endpoint)
-      description: "The watch uploads a batch. `delete-after-echo`: the watch deletes local Room rows ONLY for `local_id`s in `accepted_ids`; rejected items are preserved. The `X-Patient-Number` header MUST match the `{patient_id}` path parameter; otherwise 403. The backend MUST emit an audit entry `{actor, action: \"measurement.create\", count, ts}` for every 2xx batch POST. Body is 1-1000 `MeasurementBatch` items; 413 otherwise."
+      description: "The watch uploads a batch. `delete-after-echo`: the watch deletes local Room rows ONLY for `local_id`s in `accepted_ids`; rejected items are preserved. The `X-Patient-Number` header MUST match the `{patient_id}` path parameter; otherwise 403. **Auto-register**: if the patient identified by `X-Patient-Number` is not yet registered, the backend auto-registers them in the same transaction using the device headers `X-Device-Model` and `X-OS-Version` (defaulting to `unknown` if absent). Subsequent uploads do not re-register. The backend MUST emit an audit entry `{actor, action: \"measurement.create\", count, ts}` for every 2xx batch POST. Body is 1-1000 `MeasurementBatch` items; 413 otherwise."
+      parameters:
+        - { in: header, name: X-Device-Model, required: false, schema: { type: string }, description: "Watch hardware model. Used only on first upload to auto-register the patient." }
+        - { in: header, name: X-OS-Version, required: false, schema: { type: string }, description: "Watch OS version. Used only on first upload to auto-register the patient." }
       security: [{ PatientNumberHeader: [] }]
       requestBody:
         required: true
@@ -132,6 +135,28 @@ paths:
                 type: object
                 required: [status]
                 properties: { status: { type: string, enum: [ok] } }
+  /api/v1/readyz:
+    get:
+      tags: [admin]
+      operationId: readyCheck
+      summary: Readiness check (probes PostgreSQL)
+      description: "Returns 200 only if the service can complete a trivial query against PostgreSQL (e.g. `SELECT 1`). Use for Kubernetes readiness probes and for docker-compose `depends_on: condition: service_healthy`. 503 with `Problem` if the DB is unreachable."
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties: { status: { type: string, enum: [ready] } }
+        "503":
+          description: Service is not ready (DB unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 components:
   securitySchemes:
     PatientNumberHeader:
