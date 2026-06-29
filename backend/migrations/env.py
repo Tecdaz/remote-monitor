@@ -28,7 +28,9 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = None  # PR2 will set this once ORM models exist.
+from app.models import Base
+
+target_metadata = Base.metadata  # 4 tables across pii / clinical / audit.
 
 
 def run_migrations_offline() -> None:
