@@ -32,5 +32,14 @@ class Settings(BaseSettings):
     # to start if it is missing in non-development environments.
     pii_encryption_key: str = ""
 
+    # WebSocket heartbeat windows (PR4, REQ-WS-04). The server sends a
+    # ``{type: "ping"}`` every ``ws_ping_timeout_s`` seconds; if no
+    # client frame arrives within ``ws_pong_grace_s`` additional
+    # seconds (i.e. ``ws_ping_timeout_s + ws_pong_grace_s`` total
+    # silence), the connection is closed. Defaults match the
+    # 30s/60s values from the spec. Tests can override via env var.
+    ws_ping_timeout_s: float = 30.0
+    ws_pong_grace_s: float = 60.0
+
 
 settings = Settings()
