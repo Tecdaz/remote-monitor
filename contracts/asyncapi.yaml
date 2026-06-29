@@ -28,7 +28,9 @@ channels:
     address: 'patient/{patient_id}/measurements'
     description: |
       Per-patient channel. The `patient_id` parameter becomes part of
-      the URL — `wss://{host}/ws/patients/{patient_id}/measurements`.
+      the URL — `wss://{host}/ws/patients/{patient_id}`. The trailing
+      `patient/{patient_id}/measurements` is the AsyncAPI channel
+      address (logical routing key), not a URL suffix.
     parameters:
       patient_id:
         description: Opaque patient UUID.
@@ -68,6 +70,13 @@ components:
       contentType: application/json
       payload:
         $ref: '#/components/schemas/WsPongPayload'
+    WsSubscribed:
+      name: WsSubscribed
+      title: Subscription confirmation
+      summary: "Server push immediately after the WebSocket opens (D4: URL is the subscription)"
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/WsSubscribedPayload'
   schemas:
     WsMeasurementEventPayload:
       type: object
@@ -87,3 +96,9 @@ components:
       properties:
         type: { type: string, enum: [pong] }
         ts:   { type: integer, description: "Server timestamp (epoch ms)." }
+    WsSubscribedPayload:
+      type: object
+      required: [type, patient_id]
+      properties:
+        type: { type: string, enum: [subscribed] }
+        patient_id: { type: string, format: uuid, description: "Opaque patient UUID echoed back to the client on connect." }
