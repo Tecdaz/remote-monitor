@@ -17,14 +17,12 @@ from __future__ import annotations
 # ``APP_PII_ENCRYPTION_KEY`` on first instantiation. Set it here so
 # tests that need pgcrypto have a key.
 import os
-
 os.environ.setdefault(
     "APP_PII_ENCRYPTION_KEY",
     "test-key-not-for-production-32+chars",
 )
 
 import pytest
-import structlog
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,34 +30,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import AsyncSessionLocal
 from app.main import app
 
-# T3.4: the measurements router lives outside ``app.main`` until T3.6
-# (when main.py is rewritten to wire every router). For HTTP tests of
-# the measurements surface we need it mounted on the test app; do so
-# here so all test files can use the shared ``client`` fixture.
-from app.routers.measurements import router as measurements_router  # noqa: E402
-from app.routers.patients import router as patients_router  # noqa: E402
-
-app.include_router(measurements_router)
-app.include_router(patients_router)
-
-
-# Replace the ``PrintLoggerFactory`` configured by ``app.main`` with the
-# stdlib integration so log calls that pass ``method=`` / ``path=`` /
-# ``status_code=`` actually go through. ``PrintLogger`` is the dev
-# default but its ``msg()`` does not accept keyword arguments, which
-# breaks the middleware's structured log calls in tests. stdlib
-# accepts kwargs as the log record's ``extra`` dict, which is what
-# ``structlog.testing.capture_logs()`` expects.
-import logging as _logging
-structlog.configure(
-    processors=[
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-    ],
-    wrapper_class=structlog.make_filtering_bound_logger(_logging.INFO),
-    logger_factory=structlog.stdlib.LoggerFactory(),
-)
+# All routers (health, measurements, patients, readyz) are now wired
+# by ``app.main`` (PR3 T3.6). The test ``client`` fixture uses the
+# production app directly; no extra ``include_router`` calls here.
+# ``app.main`` also calls ``configure_logging()`` at import time, so
+# the production structlog config (with ConsoleRenderer) is in effect.
 
 
 @pytest.fixture
