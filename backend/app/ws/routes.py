@@ -113,10 +113,12 @@ async def patient_measurements_ws(
 
     # ``last_activity`` is shared between the receive loop and the
     # heartbeat task. The heartbeat polls it; the receive loop
-    # updates it on every client frame.
+    # updates it on every client frame. The total silence window
+    # (``ping_timeout_s + pong_grace_s``) is re-read inside the
+    # heartbeat on every iteration so ``monkeypatch.setenv`` in a
+    # test takes effect on the NEXT iteration (not the current one).
     last_activity = time.monotonic()
     stop = asyncio.Event()
-    timeout_s = _ping_timeout_s() + _pong_grace_s()
 
     async def heartbeat() -> None:
         """Close the connection if the client goes silent.
@@ -129,15 +131,16 @@ async def patient_measurements_ws(
         try:
             while not stop.is_set():
                 # Sleep the ping interval (or until stop is set).
+                ping_s = _ping_timeout_s()
                 try:
-                    await asyncio.wait_for(
-                        stop.wait(), timeout=_ping_timeout_s()
-                    )
+                    await asyncio.wait_for(stop.wait(), timeout=ping_s)
                     return  # stop event fired
                 except asyncio.TimeoutError:
                     pass
-                # Check the silence window.
-                if time.monotonic() - last_activity >= timeout_s:
+                # Check the silence window. Re-read the env vars on
+                # every iteration so test-time overrides take effect.
+                total_window = ping_s + _pong_grace_s()
+                if time.monotonic() - last_activity >= total_window:
                     try:
                         await websocket.close(
                             code=CLOSE_CODE_HEARTBEAT_TIMEOUT

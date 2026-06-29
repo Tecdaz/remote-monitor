@@ -6,7 +6,7 @@ Wires:
 - Structured logging via ``app.logging_config.configure_logging()``.
 - ``app.middleware.XRequestIDMiddleware`` for the X-Request-ID header
   (REQ-OBS-01).
-- The four routers shipped by PR3:
+- The four HTTP routers shipped by PR3:
 
   - ``routers.health``  \u2014 ``GET /api/v1/health`` (REQ-HEALTH-01).
   - ``routers.measurements``  \u2014 uploadMeasurements + listMeasurements
@@ -14,8 +14,10 @@ Wires:
   - ``routers.patients``  \u2014 registerPatient + listPatients +
     getPatient + deactivatePatient-reserved (REQ-READ-02).
   - ``routers.readyz``  \u2014 ``GET /api/v1/readyz`` (REQ-HEALTH-02).
+- The WebSocket router shipped by PR4:
 
-The WebSocket surface (REQ-WS-01..05) is added in PR4.
+  - ``ws.routes``  \u2014 ``/ws/patients/{patient_id}``
+    (REQ-WS-01..05).
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from app.config import settings
 from app.logging_config import configure_logging
 from app.middleware import XRequestIDMiddleware
 from app.routers import health, measurements, patients, readyz
+from app.ws.routes import router as ws_router
 
 # Configure logging first so any startup log line uses the new policy.
 configure_logging()
@@ -34,9 +37,8 @@ app = FastAPI(
     version="0.1.0",
     description=(
         "FastAPI ingest service + WebSocket broadcast hub for the "
-        "remote-monitor PoC. PR3 ships the HTTP surface: measurements "
-        "ingest, patient registration/list, /healthz, /readyz, "
-        "structured logging and X-Request-ID middleware."
+        "remote-monitor PoC. PR3 ships the HTTP surface; PR4 adds the "
+        "in-process WebSocket fan-out (REQ-WS-01..05)."
     ),
 )
 
@@ -50,3 +52,4 @@ app.include_router(health.router)
 app.include_router(measurements.router)
 app.include_router(patients.router)
 app.include_router(readyz.router)
+app.include_router(ws_router)

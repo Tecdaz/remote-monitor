@@ -1,8 +1,8 @@
 """Transactional batch ingest for ``uploadMeasurements``.
 
 This module is the heart of REQ-INGEST-01..04 + REQ-INGEST-07 +
-REQ-SCHEMA-04. The single function ``upload_measurements`` enforces
-five invariants at once:
+REQ-SCHEMA-04 + REQ-WS-02. The single function ``upload_measurements``
+enforces the following invariants:
 
 1. Per-item Pydantic validation (REQ-INGEST-01) — bad items are
    rejected individually, the good ones go through.
@@ -23,6 +23,12 @@ five invariants at once:
    ``pii.patients`` and ``clinical.patients`` in the same transaction
    as the first measurement insert. A measurement insert failure
    rolls the patient registration back too.
+6. WS publish AFTER commit (REQ-WS-02) — only when the commit
+   succeeds do we call ``manager.publish(patient_id, ...)`` with a
+   WsMeasurementEvent for the FIRST accepted measurement. The
+   publish is best-effort: a WS failure does not invalidate the
+   HTTP 200. Clients that miss the event can still re-fetch via
+   ``GET /measurements`` (REQ-READ-01).
 
 Implementation note: the PR2 0001_initial migration did not attach a
 ``server_default`` to ``clinical.measurements.id`` / ``received_at`` or
@@ -46,6 +52,7 @@ from app.models import ClinicalMeasurement, ClinicalPatient, PiiPatient
 from app.schemas import BatchResponse, MeasurementBatch, RejectedMeasurement
 from app.services.audit import write_audit_log
 from app.services.crypto import encrypt_patient_number
+from app.ws.manager import manager
 
 # Action string used for measurement.create audit rows. Stable value;
 # the ``audit.audit_log.action`` column is intentionally unindexed (PoC).
@@ -159,6 +166,10 @@ async def upload_measurements(
             )
 
     # --- 2-5. Single transaction: resolve patient, insert, audit -------
+    # Capture the per-item id so the WS publish (after commit) can
+    # include the server-assigned ``id`` in the Measurement dict.
+    item_ids: list[UUID] = []
+    received_at: datetime | None = None
     async with session.begin():
         patient_id = await _resolve_patient(
             session,
@@ -173,12 +184,13 @@ async def upload_measurements(
         # (REQ-INGEST-04 scenario 2: A, B, C -> accepted_ids = [A, B, C]).
         if valid_items:
             received_at = datetime.now(timezone.utc)
+            item_ids = [uuid4() for _ in valid_items]
             insert_stmt = (
                 pg_insert(ClinicalMeasurement)
                 .values(
                     [
                         {
-                            "id": uuid4(),
+                            "id": item_ids[i],
                             "patient_id": patient_id,
                             "local_id": item.local_id,
                             "timestamp": item.timestamp,
@@ -186,7 +198,7 @@ async def upload_measurements(
                             "spo2_percent": item.spo2_percent,
                             "received_at": received_at,
                         }
-                        for item in valid_items
+                        for i, item in enumerate(valid_items)
                     ]
                 )
                 .on_conflict_do_nothing(
@@ -213,4 +225,40 @@ async def upload_measurements(
     # ``async with session.begin():`` block exits so a rollback never
     # produces a 2xx (REQ-INGEST-02).
     accepted_ids = [item.local_id for item in valid_items]
+
+    # WS fan-out (REQ-WS-02). Best-effort: a failure here must not
+    # invalidate the 200 response. We publish ONLY the first accepted
+    # measurement in the batch (PoC choice — the spec allows "all" or
+    # "first"; first is simpler and reduces WS traffic).
+    if valid_items and received_at is not None and item_ids:
+        first_item = valid_items[0]
+        first_id = item_ids[0]
+        measurement_dict: dict[str, Any] = {
+            "id": str(first_id),
+            "patient_id": str(patient_id),
+            "local_id": str(first_item.local_id),
+            "timestamp": first_item.timestamp.isoformat(),
+            "heart_rate_bpm": first_item.heart_rate_bpm,
+            "spo2_percent": (
+                float(first_item.spo2_percent)
+                if first_item.spo2_percent is not None
+                else None
+            ),
+            "received_at": received_at.isoformat(),
+        }
+        try:
+            await manager.publish(
+                patient_id,
+                {"type": "measurement.created", "data": measurement_dict},
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Log and swallow — the 200 is the contract, the WS push
+            # is a courtesy.
+            import structlog
+            structlog.get_logger().warning(
+                "ws publish failed; clients may miss event",
+                patient_id=str(patient_id),
+                error=str(exc),
+            )
+
     return BatchResponse(accepted_ids=accepted_ids, rejected=rejected)
