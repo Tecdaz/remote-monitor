@@ -12,7 +12,7 @@ import com.remotemonitor.watch.identity.IdentityRepository
 import com.remotemonitor.watch.identity.IdentityRepositoryImpl
 import com.remotemonitor.watch.sensor.HeartRateSensor
 import com.remotemonitor.watch.sensor.HealthServicesHeartRateSensor
-import com.remotemonitor.watch.sensor.NullSpO2Provider
+import com.remotemonitor.watch.sensor.SamsungSpO2Provider
 import com.remotemonitor.watch.sensor.SensorOrchestrator
 import com.remotemonitor.watch.sensor.SpO2Provider
 import com.remotemonitor.watch.sync.BatchUploadWorker
@@ -59,7 +59,14 @@ class WatchApplication : Application() {
 
     // --- Sensors ---------------------------------------------------------
 
-    val spO2Provider: SpO2Provider by lazy { NullSpO2Provider() }
+    // REQ-WATCH-12 / REQ-WATCH-68: wire the real Samsung SDK-backed
+    // SpO2 provider. `NullSpO2Provider` is RETAINED in the source set
+    // (per the SpO2Provider KDoc) as the non-Samsung fallback, but no
+    // longer instantiated here. On a non-Samsung device, the
+    // SamsungSpO2Provider.read() will return null cleanly (via
+    // onConnectionFailed / timeout) and the orchestrator will insert
+    // rows with spo2Percent = null.
+    val spO2Provider: SpO2Provider by lazy { SamsungSpO2Provider(this) }
     val heartRateSensor: HeartRateSensor by lazy { HealthServicesHeartRateSensor(this) }
 
     val sensorOrchestrator: SensorOrchestrator by lazy {
