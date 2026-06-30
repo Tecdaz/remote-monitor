@@ -1,6 +1,12 @@
 plugins {
     alias(libs.plugins.android.application)
+    // T-WATCH-18: explicit kotlin-android (paired with android.builtInKotlin=false
+    // in gradle.properties) is required by KSP for the source-set pipeline.
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    // T-WATCH-18: KSP for Room compiler. Version pinned in libs.versions.toml
+    // (the documented exception to the "no version constraints" rule).
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -30,8 +36,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
     useLibrary("wear-sdk")
     buildFeatures {
@@ -41,6 +47,14 @@ android {
 
 kotlin {
     jvmToolchain(21)
+}
+
+// T-WATCH-18: Room schema export location. The Room compiler writes the
+// schema JSON files for the entities under app/schemas/. The directory
+// is git-ignored except for committed versions; the actual generation
+// happens at build time (never hand-written per project rules).
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -76,6 +90,13 @@ dependencies {
     implementation(libs.lifecycle.runtime)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.navigation.compose)
+
+    // Room (T-WATCH-18). The Room artifacts are versioned explicitly in the
+    // version catalog (`room = "2.6.1"`) because no `androidx.room:room-bom`
+    // exists on Google Maven. The compiler is wired via ksp().
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
 
     // Test
     testImplementation(libs.junit)

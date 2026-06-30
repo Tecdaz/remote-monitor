@@ -1,8 +1,9 @@
 package com.remotemonitor.watch
 
 import android.app.Application
+import androidx.room.Room
+import com.remotemonitor.watch.data.AppDatabase
 import com.remotemonitor.watch.data.MeasurementDao
-import com.remotemonitor.watch.data.MeasurementEntity
 import com.remotemonitor.watch.identity.DeviceInfoProvider
 import com.remotemonitor.watch.identity.DeviceInfoProviderImpl
 import com.remotemonitor.watch.identity.IdentityRepository
@@ -12,18 +13,20 @@ import com.remotemonitor.watch.sensor.HealthServicesHeartRateSensor
 import com.remotemonitor.watch.sensor.NullSpO2Provider
 import com.remotemonitor.watch.sensor.SpO2Provider
 import com.remotemonitor.watch.sync.BatchUploadWorker
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
  * Wear OS application entry point. ServiceLocator for the watch's
  * components (REQ-WATCH-04 / T-WATCH-40).
  *
  * The merge-gate test (`BatchUploadWorkerTest`) mocks all dependencies
- * directly, so this ServiceLocator is not exercised by tests. It's
- * the production wiring for [com.remotemonitor.watch.sync.SyncForegroundService]
+ * directly, so this ServiceLocator is not exercised by tests. It's the
+ * production wiring for [com.remotemonitor.watch.sync.SyncForegroundService]
  * and the sensor layer.
+ *
+ * Persistence (T-WATCH-18): the local measurement store is Room.
+ * [database] is the single source of truth; [measurementDao] delegates
+ * to it. The Room-generated implementation is exercised on-device by
+ * [com.remotemonitor.watch.sensor.SensorOrchestrator].
  */
 class WatchApplication : Application() {
 
@@ -40,25 +43,28 @@ class WatchApplication : Application() {
     // --- Persistence ----------------------------------------------------
 
     /**
-     * In-memory placeholder until Room is wired (T-WATCH-18 deferred
-     * due to AGP 9.0+ `kotlin.sourceSets` conflict). The watch's actual
-     * local store will be Room once the KSP/AGP conflict is resolved.
-     *
-     * The worker is exercised end-to-end via the merge-gate test
-     * (which mocks the DAO), and the orchestrator via
-     * `SensorOrchestratorTest` (which also mocks). Production behavior
-     * is wired up in a follow-up.
+     * The Room database is the single source of truth for pending
+     * uploads (T-WATCH-18). It is built lazily on first access; the
+     * on-disk file lives in the app's no-backup directory.
      */
-    val measurementDao: MeasurementDao = InMemoryMeasurementDao()
+    val database: AppDatabase by lazy {
+        Room.databaseBuilder(this, AppDatabase::class.java, "measurements.db")
+            // PoC: destructive migration is acceptable; the next non-PoC
+            // bump must add a real Migration.
+            .fallbackToDestructiveMigration(dropAllTables = true)
+            .build()
+    }
+
+    /** DAO exposed for sensor + sync wiring. */
+    val measurementDao: MeasurementDao by lazy { database.measurementDao() }
 
     // --- API client -----------------------------------------------------
 
     /**
      * Placeholder until [com.remotemonitor.watch.api.ApiClient] lands in
-     * a follow-up (T-WATCH-22). For now, the API is a no-op — the
-     * worker never reaches a real upload in production until the
-     * ApiClient is built and `WatchApplication.measurementsApi` is wired
-     * to it.
+     * T-WATCH-22. For now, the API is a no-op — the worker never reaches
+     * a real upload in production until the ApiClient is built and
+     * `WatchApplication.measurementsApi` is wired to it.
      */
     val measurementsApi: com.remotemonitor.watch.api.MeasurementsApi =
         StubMeasurementsApi()
@@ -80,29 +86,6 @@ class WatchApplication : Application() {
 }
 
 /**
- * In-memory [MeasurementDao] placeholder.
- *
- * Thread-safe (uses a Mutex around its MutableStateFlow of rows).
- * Replaced by Room in T-WATCH-18.
- */
-private class InMemoryMeasurementDao : MeasurementDao {
-    private val mutex = Mutex()
-    private val rows = MutableStateFlow<List<MeasurementEntity>>(emptyList())
-
-    override suspend fun insert(entity: MeasurementEntity) = mutex.withLock {
-        rows.value = rows.value + entity
-    }
-
-    override suspend fun selectPending(limit: Int): List<MeasurementEntity> = mutex.withLock {
-        rows.value.sortedBy { it.timestamp }.take(limit)
-    }
-
-    override suspend fun deleteByIds(ids: List<String>) = mutex.withLock {
-        rows.value = rows.value.filterNot { it.localId in ids }
-    }
-}
-
-/**
  * Placeholder [com.remotemonitor.watch.api.MeasurementsApi] that
  * throws if invoked. Replaced by a Retrofit-backed client in
  * T-WATCH-22. The merge-gate test uses MockWebServer so this
@@ -111,7 +94,7 @@ private class InMemoryMeasurementDao : MeasurementDao {
 private class StubMeasurementsApi : com.remotemonitor.watch.api.MeasurementsApi {
     override suspend fun uploadMeasurements(
         patientId: String,
-        batch: List<MeasurementEntity>,
+        batch: List<com.remotemonitor.watch.data.MeasurementEntity>,
         patientNumber: String,
         deviceModel: String?,
         osVersion: String?,
