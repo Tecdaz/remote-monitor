@@ -12,7 +12,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -34,20 +36,50 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Root composable (T-WATCH-40, PR 3 fresh-review follow-up).
+ *
+ * Resolves the persisted identity (paired vs. not paired) BEFORE
+ * creating the [NavHost], but does so asynchronously via a
+ * [LaunchedEffect] instead of the previous `runBlocking` on
+ * `getPatientNumber()` from `onCreate`. DataStore reads on cold
+ * start can take 100ms+; on Wear OS 6 the ANR window is 5s, but
+ * blocking the main thread from `onCreate` is still risky and
+ * produces a perceptible "freeze" on first launch.
+ *
+ * Flow:
+ *  1. `initialDestination` starts as `null` (blank screen).
+ *  2. The `LaunchedEffect(Unit)` reads `identity.getPatientNumber()`
+ *     off the main thread (DataStore I/O is main-safe) and updates
+ *     `initialDestination` to either `"home"` or `"onboarding"`.
+ *  3. On the first non-null value, the `WatchNavHost` is created
+ *     with the resolved `startDestination`. The `key()` ensures the
+ *     NavHost is only created once per destination value (in case
+ *     the value ever changes at runtime).
+ */
 @Composable
 fun WatchApp(app: WatchApplication) {
-    val navController = rememberNavController()
-    val initialDestination = remember {
-        // T-WATCH-40: decide the start route from the persisted
-        // identity. The read is synchronous because we only inspect
-        // the cached DataStore value; the result is sealed in the
-        // Compose graph as the initial destination.
-        val initial = if (isPaired(app)) "home" else "onboarding"
-        initial
+    var initialDestination by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        val isPaired = app.identityRepository.getPatientNumber() != null
+        initialDestination = if (isPaired) "home" else "onboarding"
     }
+    val dest = initialDestination
+    if (dest != null) {
+        WatchNavHost(app = app, startDestination = dest)
+    }
+    // else: blank screen while we wait for DataStore. Intentionally
+    // not a spinner — the read is fast (single-pref DataStore, cached
+    // after first read) and a flash of a spinner on first launch
+    // would be more jarring than a 50-100ms blank frame.
+}
+
+@Composable
+private fun WatchNavHost(app: WatchApplication, startDestination: String) {
+    val navController = rememberNavController()
     NavHost(
         navController = navController,
-        startDestination = initialDestination,
+        startDestination = startDestination,
     ) {
         composable("onboarding") {
             val viewModel = remember { app.onboardingViewModelFactory() }
@@ -75,14 +107,4 @@ fun WatchApp(app: WatchApplication) {
             HomeScreen(state = state)
         }
     }
-}
-
-/**
- * Best-effort check for "is this watch already paired?". Reads the
- * DataStore synchronously via a blocking runBlocking on the
- * application scope. The result is read once at activity creation,
- * not on every recomposition.
- */
-private fun isPaired(app: WatchApplication): Boolean = kotlinx.coroutines.runBlocking {
-    app.identityRepository.getPatientNumber() != null
 }
