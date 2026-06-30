@@ -20,6 +20,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import retrofit2.Retrofit
@@ -237,6 +238,33 @@ class BatchUploadWorkerTest {
         assertEquals("P-00042", recorded.getHeader("X-Patient-Number"))
         assertEquals("Samsung Galaxy Watch 4", recorded.getHeader("X-Device-Model"))
         assertEquals("Wear OS 6 (API 36)", recorded.getHeader("X-OS-Version"))
+
+        // T-FIX-07 (REQ-WATCH-55): body-shape regression guard. The
+        // previous version of S05.7 only inspected headers, so a
+        // camelCase-on-the-wire or raw-Long-timestamp regression
+        // could ship silently (R1 in engram #319). Now we also
+        // assert the four snake_case keys and the ISO 8601
+        // 'Z'-suffixed timestamp on the body.
+        val body = recorded.body.readUtf8()
+        assertTrue(
+            "body must use 'local_id' (snake_case), got: $body",
+            body.contains("\"local_id\":\"$l1\""),
+        )
+        assertTrue(
+            "body must use 'heart_rate_bpm' (snake_case), got: $body",
+            body.contains("\"heart_rate_bpm\":72"),
+        )
+        assertTrue(
+            "body must use 'spo2_percent' (snake_case) or omit it (Moshi 1.15.1 omits null primitives), got: $body",
+            body.contains("\"spo2_percent\"") ||
+                !body.contains("spo2"),
+        )
+        // ISO 8601 timestamp with Z suffix — NOT a raw Long number.
+        val tsRegex = Regex("\"timestamp\":\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z\"")
+        assertTrue(
+            "body must serialize timestamp as ISO 8601 with 'Z' suffix, got: $body",
+            tsRegex.containsMatchIn(body),
+        )
     }
 
     @Test
