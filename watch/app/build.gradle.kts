@@ -87,6 +87,9 @@ dependencies {
     // The line below is commented out because the placeholder in the repo
     // is not a valid AAR — see watch/libs/README.md for the install steps.
     // TODO(sdd-apply): add AAR when available — uncomment the line below.
+    // ⚠️  DO NOT uncomment until the placeholder is replaced with a real AAR
+    // (must be a valid ZIP; the placeholder is UTF-8 plaintext and will fail
+    // AAR parsing with an obscure error).
     // implementation(files("libs/samsung-health-tracking.aar"))
 
     // Sync + data layer (T-WATCH-17..24 production code; Room + KSP added in T-WATCH-18)
@@ -103,7 +106,7 @@ dependencies {
     implementation(libs.navigation.compose)
 
     // Room (T-WATCH-18). The Room artifacts are versioned explicitly in the
-    // version catalog (`room = "2.6.1"`) because no `androidx.room:room-bom`
+    // version catalog (`room = "2.7.2"`) because no `androidx.room:room-bom`
     // exists on Google Maven. The compiler is wired via ksp().
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
