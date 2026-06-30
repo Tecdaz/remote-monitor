@@ -6,6 +6,8 @@ import com.remotemonitor.watch.data.MeasurementDao
 import com.remotemonitor.watch.data.MeasurementEntity
 import com.remotemonitor.watch.identity.DeviceInfoProvider
 import com.remotemonitor.watch.identity.IdentityRepository
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -268,7 +270,16 @@ class BatchUploadWorkerTest {
         Retrofit.Builder()
             .baseUrl(baseUrl)
             .client(OkHttpClient.Builder().build())
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(
+                MoshiConverterFactory.create(
+                    Moshi.Builder()
+                        // KotlinJsonAdapterFactory handles Kotlin data classes
+                        // via reflection. For production, we'd use moshi-kotlin-codegen
+                        // (KSP-based) for faster startup and smaller binary.
+                        .add(KotlinJsonAdapterFactory())
+                        .build()
+                )
+            )
             .build()
             .create(MeasurementsApi::class.java)
 }
