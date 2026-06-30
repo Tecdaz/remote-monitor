@@ -25,10 +25,14 @@ import org.robolectric.annotation.Config
  *
  * Scenarios:
  *  - **S17.1**: the primary action button is ≥ 56dp tall (REQ-WATCH-18).
- *  - **S18.1**: "P-00042" passes the regex; the button is enabled and
- *    tapping it does not surface a validation error.
- *  - **S18.2**: "P-0042" (3 chars) and "  abc  " (whitespace) fail the
- *    regex; the button is disabled.
+ *  - **S18.1**: "P-00042" (the OpenAPI canonical example) passes the
+ *    regex; the button is enabled and tapping it does not surface a
+ *    validation error.
+ *  - **S18.2a**: "P_0042" (underscore, not in the regex) fails the regex;
+ *    the button is disabled.
+ *  - **S18.2b**: 3-char input fails the {4,32} length bound; the button
+ *    is disabled.
+ *  - **S18.2c**: whitespace-padded input fails; the button is disabled.
  *  - An extra scenario covers the error-message branch when the
  *    ViewModel surfaces a non-null error.
  *
@@ -61,7 +65,7 @@ class OnboardingScreenTest {
         composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
-                    patientNumber = "P00042",
+                    patientNumber = "P-00042",
                     error = null,
                     isSubmitting = false,
                     onValueChange = {},
@@ -76,12 +80,9 @@ class OnboardingScreenTest {
 
     // --- S18.1: valid input → no error, button enabled ------------------
     //
-    // Note: the orchestrator's task description showed the valid value
-    // as "P-00042", but the validation regex `^[A-Za-z0-9]{4,32}$`
-    // (REQ-WATCH-18, hard-coded in the OnboardingScreen contract)
-    // disallows the hyphen. We use the all-alphanumeric form
-    // "P00042" so the test exercises the intended code path; the
-    // difference is documented in the PR's `deviations` block.
+    // "P-00042" is the OpenAPI canonical example (contracts/openapi.yaml
+    // lines 181, 191). The validation regex `^[A-Za-z0-9-]{4,32}$`
+    // (REQ-WATCH-18) accepts letters, digits, and hyphens.
 
     @Test
     fun S18_1_valid_patient_number_enables_submit_and_shows_no_error() {
@@ -90,7 +91,7 @@ class OnboardingScreenTest {
         composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
-                    patientNumber = "P00042",
+                    patientNumber = "P-00042",
                     error = null,
                     isSubmitting = false,
                     onValueChange = { lastValue = it },
@@ -99,7 +100,7 @@ class OnboardingScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithText("P00042").assertIsDisplayed()
+        composeTestRule.onNodeWithText("P-00042").assertIsDisplayed()
         composeTestRule.onNodeWithText(PatientNumberErrorMessage).assertDoesNotExist()
         composeTestRule
             .onNodeWithContentDescription("Continue")
@@ -115,11 +116,11 @@ class OnboardingScreenTest {
     // --- S18.2: invalid input → button disabled ------------------------
 
     @Test
-    fun S18_2_dashed_patient_number_disables_button() {
+    fun S18_2a_underscored_patient_number_disables_button() {
         composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
-                    patientNumber = "P-0042", // 6 chars, but the hyphen is illegal
+                    patientNumber = "P_0042", // underscore, not in the regex
                     error = null,
                     isSubmitting = false,
                     onValueChange = {},
@@ -175,7 +176,7 @@ class OnboardingScreenTest {
         composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
-                    patientNumber = "P00042",
+                    patientNumber = "P-00042",
                     error = "Network unavailable. Try again.",
                     isSubmitting = false,
                     onValueChange = {},
