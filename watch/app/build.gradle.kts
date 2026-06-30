@@ -28,15 +28,22 @@ android {
 
     buildTypes {
         debug {
-            // T-WATCH-22: local backend on the emulator host (10.0.2.2 = host
-            // loopback). Real device builds would point at a staging URL.
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000/\"")
+            // T-WATCH-22: default to the Android emulator host loopback
+            // (10.0.2.2 = host). Override at build time for a real device:
+            //   ./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.42:8000/
+            // The IP must be reachable from the watch's network (same WiFi).
+            val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?)
+                ?: "http://10.0.2.2:8000/"
+            buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         }
         release {
             isMinifyEnabled = false
-            // T-WATCH-22: production URL is a placeholder; the orchestrator
-            // pins the real URL at build time per environment.
-            buildConfigField("String", "API_BASE_URL", "\"https://api.example.com/\"")
+            // T-WATCH-22: production URL is a placeholder. Override at
+            // build time per environment:
+            //   ./gradlew :app:assembleRelease -PapiBaseUrl=https://api.real-host.example/
+            val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?)
+                ?: "https://api.example.com/"
+            buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
