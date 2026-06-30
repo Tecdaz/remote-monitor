@@ -2,7 +2,6 @@ package com.remotemonitor.watch.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -100,9 +99,3 @@ fun OnboardingScreen(
         }
     }
 }
-
-// PaddingValues is referenced to keep the param list future-proof when
-// we add a Scaffold-based layout. Suppress the unused warning explicitly
-// to make the intent visible to readers.
-@Suppress("unused")
-private val ReservedScaffoldPadding: PaddingValues = PaddingValues(0.dp)

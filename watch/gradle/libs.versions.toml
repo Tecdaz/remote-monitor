@@ -16,10 +16,15 @@ turbine = "1.2.0"
 mockwebserver = "4.12.0"
 coroutinesTest = "1.9.0"
 # T-WATCH-36: Robolectric is required to host Compose UI tests in pure-JVM
-# mode (no instrumentation device). The Compose UI Test 1.5.x
+# mode (no instrumentation device). The Compose UI Test
 # `RobolectricIdlingStrategy` reads `Build.FINGERPRINT` at startup; the
 # only reliable way to set that field on JDK 17+ is to run the test under
-# Robolectric. 4.13 supports JDK 17 + the AndroidX lifecycle 2.8.x.
+# Robolectric. 4.13 supports JDK 17 + the AndroidX lifecycle resolved by
+# the Compose BOM (currently ui-test:1.9.2 and lifecycle:2.9.4 per
+# app/gradle.lockfile). Earlier drafts of this comment referenced the
+# 1.5.x / 2.8.x version pair; the lockfile now resolves those artifacts
+# transitively via the Compose BOM 2024.09.00, so the 4.13 floor is what
+# matters, not the exact Compose UI Test minor.
 robolectric = "4.13"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
