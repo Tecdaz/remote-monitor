@@ -9,6 +9,7 @@ import com.samsung.android.service.health.tracking.data.DataPoint
 import com.samsung.android.service.health.tracking.data.HealthTrackerType
 import com.samsung.android.service.health.tracking.data.ValueKey
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
@@ -53,10 +54,24 @@ class SamsungSpO2Provider(
     @Suppress("UNUSED_PARAMETER") private val context: Context,
     private val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
         ::HealthTrackingService,
+    private val readTimeoutMs: Long = READ_TIMEOUT_MS,
 ) : SpO2Provider {
 
+    companion object {
+        /**
+         * SpO2 read timeout (REQ-WATCH-62, per the [SpO2Provider.read]
+         * KDoc: "Apply a timeout (e.g. 30 seconds) and return null on
+         * timeout"). The 30 s budget is generous — Galaxy Watch 4 SPO2
+         * reads typically complete in < 5 s when the user holds still
+         * — and prevents the orchestrator's coroutine from hanging
+         * indefinitely if the Samsung Health service is unresponsive.
+         */
+        const val READ_TIMEOUT_MS: Long = 30_000L
+    }
+
     override suspend fun read(): SpO2Reading? {
-        return suspendCancellableCoroutine { cont ->
+        return withTimeoutOrNull(readTimeoutMs) {
+            suspendCancellableCoroutine { cont ->
             // `service` is captured by the inner ConnectionListener so the
             // listener can call `getHealthTracker` / `disconnectService` on
             // it. We use `lateinit var` because `val` cannot be referenced
@@ -115,6 +130,7 @@ class SamsungSpO2Provider(
                 context,
             )
             service.connectService()
+        }
         }
     }
 }

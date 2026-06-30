@@ -13,9 +13,11 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.unmockkAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -93,5 +95,43 @@ class SamsungSpO2ProviderTest {
         // missing-testImplementation regression early.
         val unused: HealthTrackerException? = null
         assertEquals(null, unused)
+    }
+
+    /**
+     * REQ-WATCH-62: when no callback fires within the read timeout,
+     * `read()` must return `null`; no `TimeoutCancellationException`
+     * leaks.
+     *
+     * The spec mandates 30 s in production; the test injects a
+     * compressed 2 s via the `readTimeoutMs` ctor param so the suite
+     * stays fast. `runTest` advances virtual time automatically, so
+     * the assertion completes in milliseconds of real time. The
+     * production code path (default `READ_TIMEOUT_MS = 30_000L`) is
+     * unchanged.
+     */
+    @Test
+    fun `read returns null on 30s timeout`() = runTest {
+        // The listener is never fired → the implementation's coroutine
+        // must self-cancel via withTimeoutOrNull(readTimeoutMs) and
+        // resume(null).
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        // connectService() does NOT fire onConnectionSuccess — the
+        // tracker is never requested, no data is ever received.
+        every { service.connectService() } returns Unit
+        every { service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND) } returns mockk(relaxed = true)
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { _, _ -> service }
+
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+            readTimeoutMs = 2_000L, // compressed 30 s → 2 s for the test
+        )
+
+        // No callback ever fires; read() must time out and return null.
+        val result = provider.read()
+        assertNull("read() must return null on timeout, not throw", result)
     }
 }
