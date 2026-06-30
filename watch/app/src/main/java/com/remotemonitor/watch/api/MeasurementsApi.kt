@@ -1,6 +1,7 @@
 package com.remotemonitor.watch.api
 
 import com.remotemonitor.watch.data.MeasurementEntity
+import com.squareup.moshi.Json
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
@@ -34,11 +35,13 @@ interface MeasurementsApi {
 }
 
 data class RegisterPatientRequest(
-    val patientNumber: String,
+    @Json(name = "patient_number") val patientNumber: String,
+    @Json(name = "device_model") val deviceModel: String,
+    @Json(name = "os_version") val osVersion: String,
 )
 
 data class RegisterPatientResponse(
-    val patientId: String,
-    val patientNumber: String,
-    val createdAt: String,
+    @Json(name = "patient_id") val patientId: String,
+    @Json(name = "patient_number") val patientNumber: String,
+    @Json(name = "created_at") val createdAt: String,
 )

@@ -2,6 +2,7 @@ package com.remotemonitor.watch.ui
 
 import com.remotemonitor.watch.api.MeasurementsApi
 import com.remotemonitor.watch.api.RegisterPatientRequest
+import com.remotemonitor.watch.identity.DeviceInfoProvider
 import com.remotemonitor.watch.identity.IdentityRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -53,6 +54,7 @@ sealed interface OnboardingEvent {
 class OnboardingViewModel(
     private val identity: IdentityRepository,
     private val api: MeasurementsApi,
+    private val deviceInfo: DeviceInfoProvider,
     private val scope: CoroutineScope,
 ) {
     private val _state = MutableStateFlow(OnboardingUiState())
@@ -98,7 +100,11 @@ class OnboardingViewModel(
                 identity.setPatientNumber(current.patientNumber)
                 val response = api.registerPatient(
                     patientNumber = current.patientNumber,
-                    body = RegisterPatientRequest(patientNumber = current.patientNumber),
+                    body = RegisterPatientRequest(
+                        patientNumber = current.patientNumber,
+                        deviceModel = deviceInfo.deviceModel(),
+                        osVersion = deviceInfo.osVersion(),
+                    ),
                 )
                 identity.setPatientId(response.patientId)
                 response

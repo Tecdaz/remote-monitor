@@ -3,6 +3,7 @@ package com.remotemonitor.watch.ui
 import com.remotemonitor.watch.api.MeasurementsApi
 import com.remotemonitor.watch.api.RegisterPatientRequest
 import com.remotemonitor.watch.api.RegisterPatientResponse
+import com.remotemonitor.watch.identity.DeviceInfoProvider
 import com.remotemonitor.watch.identity.IdentityRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -51,12 +52,14 @@ class OnboardingViewModelTest {
     private fun newViewModel(
         identity: IdentityRepository,
         api: MeasurementsApi,
+        deviceInfo: DeviceInfoProvider,
         scope: TestScope,
     ): OnboardingViewModel {
         val dispatcher = StandardTestDispatcher(scope.testScheduler)
         return OnboardingViewModel(
             identity = identity,
             api = api,
+            deviceInfo = deviceInfo,
             scope = TestScope(dispatcher),
         )
     }
@@ -65,6 +68,9 @@ class OnboardingViewModelTest {
     fun happy_path_emits_navigate_to_home_and_clears_submitting() = runTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
+        val deviceInfo = mockk<DeviceInfoProvider>()
+        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.registerPatient(any(), any()) } returns
             RegisterPatientResponse(
                 patientId = "uuid-1",
@@ -72,7 +78,7 @@ class OnboardingViewModelTest {
                 createdAt = "2026-06-30T00:00:00Z",
             )
 
-        val vm = newViewModel(identity, api, this)
+        val vm = newViewModel(identity, api, deviceInfo, this)
         val eventReceived = CompletableDeferred<OnboardingEvent>()
         // backgroundScope is provided by runTest; collecting on it keeps
         // the subscriber alive while the ViewModel emits the event, so
@@ -87,7 +93,14 @@ class OnboardingViewModelTest {
         // All three side effects must run, in order.
         coVerifyOrder {
             identity.setPatientNumber("P-00042")
-            api.registerPatient("P-00042", RegisterPatientRequest(patientNumber = "P-00042"))
+            api.registerPatient(
+                "P-00042",
+                RegisterPatientRequest(
+                    patientNumber = "P-00042",
+                    deviceModel = "samsung SM-R870",
+                    osVersion = "16 (API 36)",
+                ),
+            )
             identity.setPatientId("uuid-1")
         }
         assertEquals(false, vm.state.value.isSubmitting)
@@ -99,6 +112,9 @@ class OnboardingViewModelTest {
     fun setPatientId_failure_surfaces_error_and_skips_navigation() = runTest {
         val identity = mockk<IdentityRepository>()
         val api = mockk<MeasurementsApi>()
+        val deviceInfo = mockk<DeviceInfoProvider>()
+        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { identity.setPatientNumber(any()) } returns Unit
         coEvery { api.registerPatient(any(), any()) } returns
             RegisterPatientResponse(
@@ -108,7 +124,7 @@ class OnboardingViewModelTest {
             )
         coEvery { identity.setPatientId(any()) } throws java.io.IOException("DataStore disk full")
 
-        val vm = newViewModel(identity, api, this)
+        val vm = newViewModel(identity, api, deviceInfo, this)
         // No subscriber: if NavigateToHome is emitted, it stays in the
         // SharedFlow's extra buffer (capacity=1). We check the buffer
         // after advanceUntilIdle to assert nothing was emitted.
@@ -140,9 +156,12 @@ class OnboardingViewModelTest {
     fun registerPatient_failure_surfaces_error_and_skips_navigation() = runTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
+        val deviceInfo = mockk<DeviceInfoProvider>()
+        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.registerPatient(any(), any()) } throws java.io.IOException("Backend unreachable")
 
-        val vm = newViewModel(identity, api, this)
+        val vm = newViewModel(identity, api, deviceInfo, this)
         vm.onPatientNumberChange("P-00042")
         vm.onSubmit()
         advanceUntilIdle()
@@ -166,8 +185,9 @@ class OnboardingViewModelTest {
     fun invalid_input_does_not_invoke_any_side_effect() = runTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
+        val deviceInfo = mockk<DeviceInfoProvider>()
 
-        val vm = newViewModel(identity, api, this)
+        val vm = newViewModel(identity, api, deviceInfo, this)
         vm.onPatientNumberChange("P_0042") // underscore, not in the regex
         vm.onSubmit()
         advanceUntilIdle()
@@ -198,6 +218,9 @@ class OnboardingViewModelTest {
     fun late_subscriber_still_receives_navigate_to_home() = runTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
+        val deviceInfo = mockk<DeviceInfoProvider>()
+        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.registerPatient(any(), any()) } returns
             RegisterPatientResponse(
                 patientId = "uuid-1",
@@ -205,7 +228,7 @@ class OnboardingViewModelTest {
                 createdAt = "2026-06-30T00:00:00Z",
             )
 
-        val vm = newViewModel(identity, api, this)
+        val vm = newViewModel(identity, api, deviceInfo, this)
         vm.onPatientNumberChange("P-00042")
         vm.onSubmit()
         // Run the submit coroutine to completion. The event is emitted

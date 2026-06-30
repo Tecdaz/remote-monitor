@@ -139,6 +139,7 @@ class WatchApplication : Application() {
         OnboardingViewModel(
             identity = identityRepository,
             api = measurementsApi,
+            deviceInfo = deviceInfoProvider,
             scope = applicationScope,
         )
     }
