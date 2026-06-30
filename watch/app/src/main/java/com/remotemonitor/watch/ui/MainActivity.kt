@@ -8,92 +8,81 @@ package com.remotemonitor.watch.ui
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
-import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
-import androidx.wear.compose.material3.AppScaffold
-import androidx.wear.compose.material3.Button
-import androidx.wear.compose.material3.ButtonDefaults
-import androidx.wear.compose.material3.EdgeButton
-import androidx.wear.compose.material3.ListHeader
-import androidx.wear.compose.material3.MaterialTheme
-import androidx.wear.compose.material3.ScreenScaffold
-import androidx.wear.compose.material3.SurfaceTransformation
-import androidx.wear.compose.material3.Text
-import androidx.wear.compose.material3.lazy.rememberTransformationSpec
-import androidx.wear.compose.material3.lazy.transformedHeight
-import androidx.wear.compose.ui.tooling.preview.WearPreviewDevices
-import androidx.wear.compose.ui.tooling.preview.WearPreviewFontScales
-import com.remotemonitor.watch.R
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.remotemonitor.watch.WatchApplication
 import com.remotemonitor.watch.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val app = application as WatchApplication
         setContent {
-            WearApp("Android")
-        }
-    }
-}
-
-@Composable
-fun WearApp(greetingName: String) {
-    MyApplicationTheme {
-        AppScaffold {
-            val listState = rememberTransformingLazyColumnState()
-            val transformationSpec = rememberTransformationSpec()
-            ScreenScaffold(
-                scrollState = listState,
-                edgeButton = {
-                    EdgeButton(
-                        onClick = { /*TODO*/ },
-                        colors =
-                            ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            ),
-                    ) {
-                        Text("More")
-                    }
-                },
-            ) { contentPadding -> // ScreenScaffold provides default padding; adjust as needed
-                TransformingLazyColumn(contentPadding = contentPadding, state = listState) {
-                    item {
-                        ListHeader(
-                            modifier =
-                                Modifier.fillMaxWidth().transformedHeight(this, transformationSpec),
-                            transformation = SurfaceTransformation(transformationSpec),
-                        ) {
-                            Text(text = stringResource(R.string.hello_world, greetingName))
-                        }
-                    }
-                    item {
-                        Button(onClick = { /*TODO*/ }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Button A")
-                        }
-                    }
-                    item {
-                        Button(onClick = { /*TODO*/ }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Button B")
-                        }
-                    }
-                    item {
-                        Button(onClick = { /*TODO*/ }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Button C")
-                        }
-                    }
-                }
+            MyApplicationTheme {
+                WatchApp(app = app)
             }
         }
     }
 }
 
-@WearPreviewDevices
-@WearPreviewFontScales
 @Composable
-fun DefaultPreview() {
-    WearApp("Preview Android")
+fun WatchApp(app: WatchApplication) {
+    val navController = rememberNavController()
+    val initialDestination = remember {
+        // T-WATCH-40: decide the start route from the persisted
+        // identity. The read is synchronous because we only inspect
+        // the cached DataStore value; the result is sealed in the
+        // Compose graph as the initial destination.
+        val initial = if (isPaired(app)) "home" else "onboarding"
+        initial
+    }
+    NavHost(
+        navController = navController,
+        startDestination = initialDestination,
+    ) {
+        composable("onboarding") {
+            val viewModel = remember { app.onboardingViewModelFactory() }
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            OnboardingScreen(
+                patientNumber = state.patientNumber,
+                error = state.error,
+                isSubmitting = state.isSubmitting,
+                onValueChange = viewModel::onPatientNumberChange,
+                onSubmit = viewModel::onSubmit,
+            )
+            LaunchedEffect(Unit) {
+                viewModel.events.collect { event ->
+                    when (event) {
+                        OnboardingEvent.NavigateToHome -> navController.navigate("home") {
+                            popUpTo("onboarding") { inclusive = true }
+                        }
+                    }
+                }
+            }
+        }
+        composable("home") {
+            val viewModel = remember { app.homeViewModelFactory() }
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            HomeScreen(state = state)
+        }
+    }
+}
+
+/**
+ * Best-effort check for "is this watch already paired?". Reads the
+ * DataStore synchronously via a blocking runBlocking on the
+ * application scope. The result is read once at activity creation,
+ * not on every recomposition.
+ */
+private fun isPaired(app: WatchApplication): Boolean = kotlinx.coroutines.runBlocking {
+    app.identityRepository.getPatientNumber() != null
 }
