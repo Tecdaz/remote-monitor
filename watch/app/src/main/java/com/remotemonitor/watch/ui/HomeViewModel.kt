@@ -3,15 +3,12 @@ package com.remotemonitor.watch.ui
 import com.remotemonitor.watch.data.MeasurementDao
 import com.remotemonitor.watch.identity.IdentityRepository
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 /**
  * UI state for the home screen (T-WATCH-38, REQ-WATCH-19).
@@ -31,23 +28,34 @@ data class HomeUiState(
  * ViewModel for the home screen (T-WATCH-38, REQ-WATCH-19).
  *
  * Combines two reactive sources into a single [HomeUiState] flow:
- *  - [IdentityRepository.getPatientNumber] is called once at start
- *    (the operator-typed number does not change while the home screen
- *    is on top — the onboarding flow owns the write path).
+ *  - [IdentityRepository.getPatientNumber] is wrapped in a cold
+ *    `flow { emit(identity.getPatientNumber()) }` and re-collected on
+ *    every subscription. This avoids the stale-read bug where the
+ *    previous implementation cached the value in a one-shot `init`
+ *    block: after `WhileSubscribed(5_000L)` cancelled the upstream and
+ *    a fresh subscription arrived (e.g., activity recreation, screen
+ *    nav), the state flow re-emitted the initialValue (null
+ *    patientNumber) until the upstream restarted, causing a brief null
+ *    flicker. Wrapping the getter in a cold flow keeps the read on the
+ *    re-subscription path so the state never reports a stale value.
  *  - [MeasurementDao.pendingCount] is observed as a `Flow<Int>` (Room
  *    supports `@Query("SELECT COUNT(*)")` returning a `Flow` that
  *    re-emits on every insert / delete). The screen reflects this in
  *    real time without polling.
+ *
+ * The `catch` on the patient number flow keeps a DataStore I/O error
+ * from killing the combine (the operator-typed number is a
+ * "nice-to-have" label; if DataStore is down, we just keep the
+ * initialValue with patientNumber = null rather than crash the home
+ * screen).
  */
 class HomeViewModel(
     private val identity: IdentityRepository,
     private val dao: MeasurementDao,
     private val scope: CoroutineScope,
 ) {
-    private val patientNumberFlow = MutableStateFlow<String?>(null)
-
     val state: StateFlow<HomeUiState> = combine(
-        patientNumberFlow,
+        flow { emit(identity.getPatientNumber()) }.catch { /* keep state at initialValue */ },
         dao.pendingCount(),
     ) { patientNumber, pendingCount ->
         HomeUiState(patientNumber = patientNumber, pendingCount = pendingCount)
@@ -56,14 +64,6 @@ class HomeViewModel(
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
         initialValue = HomeUiState(),
     )
-
-    init {
-        // Patient number is a one-shot read; refresh on first launch.
-        scope.launch {
-            runCatching { identity.getPatientNumber() }
-                .onSuccess { patientNumberFlow.value = it }
-        }
-    }
 
     private companion object {
         const val STOP_TIMEOUT_MS = 5_000L
