@@ -8,6 +8,7 @@ package com.remotemonitor.watch.data
  * export per REQ-WATCH-13).
  */
 interface MeasurementDao {
+    suspend fun insert(entity: MeasurementEntity)
     suspend fun selectPending(limit: Int): List<MeasurementEntity>
     suspend fun deleteByIds(ids: List<String>)
 }

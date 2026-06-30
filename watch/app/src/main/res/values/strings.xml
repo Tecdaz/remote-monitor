@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Remote Monitor</string>
     <string name="hello_world">Hello, %1$s!</string>
+    <string name="sync_notification_text">Monitoring patient</string>
 </resources>
