@@ -152,6 +152,45 @@ class SamsungSpO2ProviderTest {
         assertNull("read() must return null when flush() returns false", result)
     }
 
+    /**
+     * REQ-WATCH-64: when the SDK fires `onConnectionFailed` (e.g.
+     * `PACKAGE_NOT_INSTALLED` on a non-Samsung device, or
+     * `OLD_PLATFORM_VERSION` on an outdated Wear OS image),
+     * `read()` must return `null` and propagate no exception.
+     *
+     * RED-compression: impl `readTimeoutMs` is 5_000L, the test
+     * wraps in `withTimeout(1_000L)`. Without the connection-failed
+     * handler, the coroutine suspends forever and the test scope
+     * fires the 1 s timeout — assertion never sees null and the
+     * test fails.
+     */
+    @Test
+    fun `read returns null on connection failed`() = runTest {
+        val connectionListenerSlot = slot<ConnectionListener>()
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        every { service.connectService() } answers {
+            connectionListenerSlot.captured.onConnectionFailed(
+                mockk<com.samsung.android.service.health.tracking.HealthTrackerException>(relaxed = true)
+            )
+        }
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { listener, _ ->
+                connectionListenerSlot.captured = listener
+                service
+            }
+
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+            readTimeoutMs = 5_000L,
+        )
+
+        val result = withTimeout(1_000L) { provider.read() }
+        assertNull("read() must return null on connection failure, not throw", result)
+    }
+
     @Test
     fun `read returns null on 30s timeout`() = runTest {
         // The listener is never fired → the implementation's coroutine

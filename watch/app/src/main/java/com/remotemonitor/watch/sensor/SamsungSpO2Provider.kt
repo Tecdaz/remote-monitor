@@ -120,7 +120,11 @@ class SamsungSpO2Provider(
                     }
 
                     override fun onConnectionFailed(error: HealthTrackerException) {
-                        // C1 stub: the failure path is added in C4.
+                        // C4: graceful degradation. Resume null so the
+                        // orchestrator's row inserts with spo2Percent = null
+                        // (REQ-WATCH-67 S02.2) instead of hanging on a stale
+                        // binder or throwing to the call site.
+                        if (cont.isActive) cont.resume(null)
                     }
 
                     override fun onConnectionEnded() {
