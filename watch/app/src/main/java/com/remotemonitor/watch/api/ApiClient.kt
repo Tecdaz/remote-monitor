@@ -33,6 +33,12 @@ object ApiClient {
             )
         }
         val moshi = Moshi.Builder()
+            // Field-scoped epoch-ms ↔ ISO 8601 bridge for
+            // MeasurementEntity.timestamp (T-FIX-02, REQ-WATCH-54).
+            // The `add(Object)` form lets Moshi introspect the
+            // @FromJson/@ToJson methods and route only the
+            // @Iso8601Timestamp-qualified fields through this adapter.
+            .add(Iso8601TimestampAdapter())
             .add(KotlinJsonAdapterFactory())
             .build()
         return Retrofit.Builder()

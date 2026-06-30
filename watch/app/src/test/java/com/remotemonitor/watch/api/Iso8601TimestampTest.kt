@@ -4,6 +4,7 @@ import com.squareup.moshi.JsonDataException
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -33,7 +34,10 @@ import org.junit.Test
 class Iso8601TimestampTest {
 
     private val moshi: Moshi = Moshi.Builder()
-        .add(Iso8601Timestamp::class.java, Iso8601TimestampAdapter())
+        // The `add(Object)` form lets Moshi introspect the @FromJson/
+        // @ToJson methods on Iso8601TimestampAdapter and route only the
+        // @Iso8601Timestamp-qualified fields through it.
+        .add(Iso8601TimestampAdapter())
         .add(KotlinJsonAdapterFactory())
         .build()
 
@@ -57,8 +61,9 @@ class Iso8601TimestampTest {
         val original = 1_719_760_272_000L
         val adapter = moshi.adapter(Holder::class.java)
         val json = adapter.toJson(Holder(timestamp = original))
-        val parsed = adapter.fromJson(json) ?: fail("fromJson returned null")
-        assertEquals(original, parsed.timestamp)
+        val parsed = adapter.fromJson(json)
+        assertNotNull("fromJson returned null", parsed)
+        assertEquals(original, parsed!!.timestamp)
     }
 
     @Test
