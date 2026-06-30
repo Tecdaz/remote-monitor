@@ -69,6 +69,14 @@ class OnboardingViewModel(
     /**
      * Validate the input and (if valid) call the backend. Re-entrant calls
      * while a submission is in flight are ignored.
+     *
+     * All three side effects (setPatientNumber, registerPatient,
+     * setPatientId) are inside the same `runCatching` so a failure in any
+     * of them surfaces the error and prevents navigation. Previously
+     * `setPatientId` was in a separate `runCatching` that silently
+     * swallowed DataStore write failures, which would navigate the user to
+     * Home with `patient_id = null` and uploads would silently never
+     * happen. See the fresh review of PR 3 (commit message for the fix).
      */
     fun onSubmit() {
         val current = _state.value
@@ -81,12 +89,13 @@ class OnboardingViewModel(
         scope.launch {
             runCatching {
                 identity.setPatientNumber(current.patientNumber)
-                api.registerPatient(
+                val response = api.registerPatient(
                     patientNumber = current.patientNumber,
                     body = RegisterPatientRequest(patientNumber = current.patientNumber),
                 )
-            }.onSuccess { response ->
-                runCatching { identity.setPatientId(response.patientId) }
+                identity.setPatientId(response.patientId)
+                response
+            }.onSuccess {
                 _state.update { it.copy(isSubmitting = false) }
                 _events.tryEmit(OnboardingEvent.NavigateToHome)
             }.onFailure { e ->
