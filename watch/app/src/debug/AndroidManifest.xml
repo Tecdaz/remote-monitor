@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-variant manifest additions (T-WATCH-36, PR 3 fresh-review).
+
+  The `ui-test-manifest` library merges an empty `ComponentActivity`
+  into the `debug` variant's manifest (no intent filters). The
+  `createAndroidComposeRule<ComponentActivity>` test rule resolves
+  the activity by class via `ActivityScenario.launch(T::class.java)`,
+  not by intent, so the host activity does not need a LAUNCHER
+  filter.
+
+  An earlier draft of this file added a MAIN/LAUNCHER intent filter
+  to make the merged manifest "look like" a real launcher activity.
+  That filter caused the debug APK to ship with TWO launcher entries
+  (this stub ComponentActivity and the real MainActivity), which
+  surfaced on device launchers as a duplicate icon / empty activity.
+  The release manifest is unaffected because this file is
+  debug-variant only.
+
+  Keeping the `<activity android:exported="true">` declaration
+  ensures Robolectric can still resolve the class when the merged
+  manifest is pointed at by `robolectric.manifest` in
+  `app/build.gradle.kts`.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="true" />
+    </application>
+</manifest>
