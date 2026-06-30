@@ -1,18 +1,23 @@
 package com.remotemonitor.watch.ui
 
-import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.remotemonitor.watch.ui.theme.MyApplicationTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * Compose UI tests for [OnboardingScreen] (T-WATCH-36, REQ-WATCH-17,
@@ -23,24 +28,40 @@ import org.junit.Test
  *  - **S18.1**: "P-00042" passes the regex; the button is enabled and
  *    tapping it does not surface a validation error.
  *  - **S18.2**: "P-0042" (3 chars) and "  abc  " (whitespace) fail the
- *    regex; the button is disabled. The same scenario verifies the
- *    ViewModel-level error surface when a non-empty error is shown.
+ *    regex; the button is disabled.
+ *  - An extra scenario covers the error-message branch when the
+ *    ViewModel surfaces a non-null error.
  *
- * Test runner: pure JVM via [runComposeUiTest] — no Robolectric, no
- * instrumentation. The Compose UI Test 1.5.x `runComposeUiTest` runs
- * the Compose runtime in-process.
+ * Test runner: [RobolectricTestRunner] + [createAndroidComposeRule].
+ * The `runComposeUiTest` path was tried first but is unusable on a
+ * stock JVM: Compose UI Test 1.5.x's `RobolectricIdlingStrategy`
+ * calls `Build.FINGERPRINT.toLowerCase()` unconditionally at test
+ * start, and JDK 17+ blocks the field-modifier reflection hack that
+ * would have set the field.
+ *
+ * `app/src/debug/AndroidManifest.xml` declares a launchable
+ * `ComponentActivity` so the rule can resolve
+ * `Intent { act=MAIN cat=LAUNCHER }` (the manifest is debug-variant
+ * only, so it does not affect release builds).
+ *
+ * `@Config(sdk = [33])` pins the runtime to API 33 (Wear OS 6 = API 36
+ * is not yet in Robolectric's pre-instrumented jars).
  */
-@OptIn(ExperimentalTestApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], application = com.remotemonitor.watch.WatchApplication::class)
 class OnboardingScreenTest {
+
+    @get:Rule
+    val composeTestRule = createAndroidComposeRule<ComponentActivity>()
 
     // --- S17.1: tap target ≥ 56dp ---------------------------------------
 
     @Test
-    fun S17_1_primary_action_is_at_least_56dp_tall() = runComposeUiTest {
-        setContent {
+    fun S17_1_primary_action_is_at_least_56dp_tall() {
+        composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
-                    patientNumber = "P-00042",
+                    patientNumber = "P00042",
                     error = null,
                     isSubmitting = false,
                     onValueChange = {},
@@ -48,19 +69,28 @@ class OnboardingScreenTest {
                 )
             }
         }
-        onNodeWithContentDescription("Continue").assertHeightIsAtLeast(56.dp)
+        composeTestRule
+            .onNodeWithContentDescription("Continue")
+            .assertHeightIsAtLeast(56.dp)
     }
 
     // --- S18.1: valid input → no error, button enabled ------------------
+    //
+    // Note: the orchestrator's task description showed the valid value
+    // as "P-00042", but the validation regex `^[A-Za-z0-9]{4,32}$`
+    // (REQ-WATCH-18, hard-coded in the OnboardingScreen contract)
+    // disallows the hyphen. We use the all-alphanumeric form
+    // "P00042" so the test exercises the intended code path; the
+    // difference is documented in the PR's `deviations` block.
 
     @Test
-    fun S18_1_valid_patient_number_enables_submit_and_shows_no_error() = runComposeUiTest {
+    fun S18_1_valid_patient_number_enables_submit_and_shows_no_error() {
         var submitted = false
         var lastValue: String? = null
-        setContent {
+        composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
-                    patientNumber = "P-00042",
+                    patientNumber = "P00042",
                     error = null,
                     isSubmitting = false,
                     onValueChange = { lastValue = it },
@@ -69,13 +99,12 @@ class OnboardingScreenTest {
             }
         }
 
-        // The field shows the patient number the ViewModel handed us.
-        onNodeWithText("P-00042").assertIsDisplayed()
-        // No error is rendered.
-        onNodeWithText(PatientNumberErrorMessage).assertDoesNotExist()
-        // The primary action is enabled.
-        onNodeWithContentDescription("Continue").assertIsEnabled().performClick()
-        runOnUiThread { /* no-op: ensures UI events flushed */ }
+        composeTestRule.onNodeWithText("P00042").assertIsDisplayed()
+        composeTestRule.onNodeWithText(PatientNumberErrorMessage).assertDoesNotExist()
+        composeTestRule
+            .onNodeWithContentDescription("Continue")
+            .assertIsEnabled()
+            .performClick()
 
         assertTrue("onSubmit must be invoked when the button is tapped", submitted)
         // onValueChange is not called by the screen itself; the host
@@ -86,11 +115,11 @@ class OnboardingScreenTest {
     // --- S18.2: invalid input → button disabled ------------------------
 
     @Test
-    fun S18_2_short_patient_number_disables_button() = runComposeUiTest {
-        setContent {
+    fun S18_2_dashed_patient_number_disables_button() {
+        composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
-                    patientNumber = "P-0042", // 6 chars, but contains a dash
+                    patientNumber = "P-0042", // 6 chars, but the hyphen is illegal
                     error = null,
                     isSubmitting = false,
                     onValueChange = {},
@@ -98,12 +127,14 @@ class OnboardingScreenTest {
                 )
             }
         }
-        onNodeWithContentDescription("Continue").assertIsNotEnabled()
+        composeTestRule
+            .onNodeWithContentDescription("Continue")
+            .assertIsNotEnabled()
     }
 
     @Test
-    fun S18_2b_three_char_patient_number_disables_button() = runComposeUiTest {
-        setContent {
+    fun S18_2b_three_char_patient_number_disables_button() {
+        composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
                     patientNumber = "abc", // 3 chars, fails the {4,32} bound
@@ -114,12 +145,14 @@ class OnboardingScreenTest {
                 )
             }
         }
-        onNodeWithContentDescription("Continue").assertIsNotEnabled()
+        composeTestRule
+            .onNodeWithContentDescription("Continue")
+            .assertIsNotEnabled()
     }
 
     @Test
-    fun S18_2c_whitespace_padded_patient_number_disables_button() = runComposeUiTest {
-        setContent {
+    fun S18_2c_whitespace_padded_patient_number_disables_button() {
+        composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
                     patientNumber = "  abc  ",
@@ -130,17 +163,19 @@ class OnboardingScreenTest {
                 )
             }
         }
-        onNodeWithContentDescription("Continue").assertIsNotEnabled()
+        composeTestRule
+            .onNodeWithContentDescription("Continue")
+            .assertIsNotEnabled()
     }
 
     // --- error visibility (covers the `error != null` branch) -----------
 
     @Test
-    fun renders_error_message_when_viewmodel_surfaces_one() = runComposeUiTest {
-        setContent {
+    fun renders_error_message_when_viewmodel_surfaces_one() {
+        composeTestRule.setContent {
             MyApplicationTheme {
                 OnboardingScreen(
-                    patientNumber = "P-00042",
+                    patientNumber = "P00042",
                     error = "Network unavailable. Try again.",
                     isSubmitting = false,
                     onValueChange = {},
@@ -148,6 +183,6 @@ class OnboardingScreenTest {
                 )
             }
         }
-        onNodeWithText("Network unavailable. Try again.").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Network unavailable. Try again.").assertIsDisplayed()
     }
 }

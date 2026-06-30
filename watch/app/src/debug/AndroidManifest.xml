@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-variant manifest additions (T-WATCH-36).
+
+  The `ui-test-manifest` library merges a ComponentActivity into the
+  `debug` variant's manifest, but it does not add a LAUNCHER intent
+  filter. The `createAndroidComposeRule<ComponentActivity>` test rule
+  builds an `Intent { act=MAIN cat=LAUNCHER }` to launch the host
+  activity, so the merged manifest must declare a ComponentActivity
+  that responds to that intent. We add the intent-filter here.
+
+  This file is debug-variant only, so it does not affect release builds.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
