@@ -12,6 +12,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.unmockkAll
+import io.mockk.verify
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -189,6 +191,61 @@ class SamsungSpO2ProviderTest {
 
         val result = withTimeout(1_000L) { provider.read() }
         assertNull("read() must return null on connection failure, not throw", result)
+    }
+
+    /**
+     * REQ-WATCH-65: when the caller's coroutine is cancelled before
+     * any callback fires, `service.disconnectService()` SHALL be
+     * invoked exactly once to prevent a binder leak.
+     *
+     * This test is a bit unusual: it cancels the coroutine WHILE it
+     * is suspended waiting for the SDK callback, then verifies the
+     * cleanup hook fired. Without `invokeOnCancellation { service
+     * .disconnectService() }` in the impl, the binder stays open
+     * and the assertion below would fail.
+     */
+    @Test
+    fun `disconnectService called on coroutine cancellation`() = runTest {
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        // connectService() fires onConnectionSuccess, but the tracker
+        // is configured never to fire onDataReceived, so the impl
+        // suspends in the bridge. We then cancel the surrounding
+        // coroutine and assert the cleanup hook ran.
+        val tracker = mockk<HealthTracker>(relaxed = true)
+        every { tracker.setEventListener(any()) } returns Unit
+        every { tracker.flush() } returns true // do not resume from flush
+
+        val connectionListenerSlot = slot<ConnectionListener>()
+        every { service.connectService() } answers {
+            connectionListenerSlot.captured.onConnectionSuccess()
+        }
+        every { service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND) } returns tracker
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { listener, _ ->
+                connectionListenerSlot.captured = listener
+                service
+            }
+
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+            readTimeoutMs = 30_000L, // long enough that we cancel first
+        )
+
+        // Launch a child coroutine that calls read() and gets stuck
+        // in the suspendCancellableCoroutine. Cancel it and verify
+        // the cleanup hook ran.
+        val deferred = async { provider.read() }
+        // Allow the launch to reach the suspension point.
+        testScheduler.advanceUntilIdle()
+        deferred.cancel()
+        // Run any post-cancellation continuations.
+        testScheduler.advanceUntilIdle()
+
+        // The cleanup hook must have been invoked exactly once.
+        verify(exactly = 1) { service.disconnectService() }
     }
 
     @Test

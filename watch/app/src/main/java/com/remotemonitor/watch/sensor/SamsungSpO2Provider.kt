@@ -79,6 +79,16 @@ class SamsungSpO2Provider(
             // happens before the listener can fire (the SDK only invokes
             // the listener after `connectService()` is called).
             lateinit var service: HealthTrackingService
+            // C5: cancellation hook. If the caller's coroutine is
+            // cancelled (timeout, parent scope teardown, the
+            // orchestrator's stop()), release the SDK binder via
+            // disconnectService() so we don't leak a process-wide
+            // connection to com.samsung.android.service.health.
+            // invokeOnCancellation runs on the cancelled coroutine's
+            // context and is the standard pattern for binder cleanup.
+            val cont = cont
+            val cleanup: (Throwable?) -> Unit = { _ -> service.disconnectService() }
+            cont.invokeOnCancellation(cleanup)
             service = serviceFactory(
                 object : ConnectionListener {
                     override fun onConnectionSuccess() {
