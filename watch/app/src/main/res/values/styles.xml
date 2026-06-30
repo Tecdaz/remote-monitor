@@ -1,0 +1,13 @@
+<resources>
+
+    <!-- Base theme for the watch app. Uses the system DeviceDefault for
+         compatibility across the supported API range (30 to 36). -->
+    <style name="Theme.Watch" parent="@android:style/Theme.DeviceDefault" />
+
+    <!-- Splash theme for MainActivity. Uses the AndroidX SplashScreen lib. -->
+    <style name="MainActivityTheme.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="postSplashScreenTheme">@style/Theme.Watch</item>
+    </style>
+</resources>
