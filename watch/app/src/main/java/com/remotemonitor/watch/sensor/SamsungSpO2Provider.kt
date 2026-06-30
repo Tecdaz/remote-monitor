@@ -112,11 +112,11 @@ class SamsungSpO2Provider(
                                 if (cont.isActive) cont.resume(null)
                             }
                         })
-                        // C1 ignores the flush() return value. C3 will add the
-                        // `if (!tracker.flush() && cont.isActive) cont.resume(null)`
-                        // short-circuit so a `false` return (tracker busy) does
-                        // not block the coroutine forever.
-                        tracker.flush()
+                        // C3 short-circuit: a `false` return from flush()
+                        // means the tracker is busy / not ready. Resume null
+                        // immediately so the orchestrator's next cadence tick
+                        // can retry, rather than waiting for the 30 s timeout.
+                        if (!tracker.flush() && cont.isActive) cont.resume(null)
                     }
 
                     override fun onConnectionFailed(error: HealthTrackerException) {

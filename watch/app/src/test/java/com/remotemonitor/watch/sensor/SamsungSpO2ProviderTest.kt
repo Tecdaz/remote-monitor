@@ -109,6 +109,49 @@ class SamsungSpO2ProviderTest {
      * production code path (default `READ_TIMEOUT_MS = 30_000L`) is
      * unchanged.
      */
+    /**
+     * REQ-WATCH-63: when `tracker.flush()` returns `false` (the SDK
+     * is busy or not ready), `read()` must return `null` without
+     * awaiting. The next cadence tick retries.
+     *
+     * RED-compression: the impl's `readTimeoutMs` is set to 5_000L
+     * (longer than the test scope's outer `withTimeout(1_000L)`). If
+     * the impl lacks the flush-return check, `read()` will block for
+     * the full 5 s and the test scope will throw a timeout — the
+     * assertion below never sees a `null` return and the test fails.
+     * With the check, the impl resumes null immediately and the
+     * outer `withTimeout` does not fire.
+     */
+    @Test
+    fun `read returns null when flush returns false`() = runTest {
+        val tracker = mockk<HealthTracker>(relaxed = true)
+        every { tracker.setEventListener(any()) } returns Unit
+        every { tracker.flush() } returns false
+
+        val connectionListenerSlot = slot<ConnectionListener>()
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        every { service.connectService() } answers {
+            connectionListenerSlot.captured.onConnectionSuccess()
+        }
+        every { service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND) } returns tracker
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { listener, _ ->
+                connectionListenerSlot.captured = listener
+                service
+            }
+
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+            readTimeoutMs = 5_000L, // longer than the test's outer 1 s
+        )
+
+        val result = withTimeout(1_000L) { provider.read() }
+        assertNull("read() must return null when flush() returns false", result)
+    }
+
     @Test
     fun `read returns null on 30s timeout`() = runTest {
         // The listener is never fired → the implementation's coroutine
