@@ -1,6 +1,7 @@
 package com.remotemonitor.watch.sync
 
 import com.remotemonitor.watch.api.BatchResponse
+import com.remotemonitor.watch.api.Iso8601TimestampAdapter
 import com.remotemonitor.watch.api.MeasurementsApi
 import com.remotemonitor.watch.data.MeasurementDao
 import com.remotemonitor.watch.data.MeasurementEntity
@@ -273,9 +274,13 @@ class BatchUploadWorkerTest {
             .addConverterFactory(
                 MoshiConverterFactory.create(
                     Moshi.Builder()
-                        // KotlinJsonAdapterFactory handles Kotlin data classes
-                        // via reflection. For production, we'd use moshi-kotlin-codegen
-                        // (KSP-based) for faster startup and smaller binary.
+                        // Iso8601TimestampAdapter must be registered
+                        // before KotlinJsonAdapterFactory so the
+                        // AdapterMethodsFactory is consulted first for
+                        // the @Iso8601Timestamp-qualified `timestamp`
+                        // field on MeasurementEntity. Same order as
+                        // ApiClient.create().
+                        .add(Iso8601TimestampAdapter())
                         .add(KotlinJsonAdapterFactory())
                         .build()
                 )
