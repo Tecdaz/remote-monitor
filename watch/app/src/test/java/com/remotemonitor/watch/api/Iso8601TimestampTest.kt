@@ -19,7 +19,7 @@ import org.junit.Test
  *
  * ```kotlin
  * Moshi.Builder()
- *     .add(Iso8601Timestamp::class.java, Iso8601TimestampAdapter())
+ *     .add(Iso8601TimestampAdapter())
  *     .add(KotlinJsonAdapterFactory())
  *     .build()
  * ```
