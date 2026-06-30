@@ -31,6 +31,8 @@ services:
       - "8000:8000"
     environment:
       APP_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/remote_monitor
+      # Local-dev only. Real deployments inject via secret store.
+      APP_PII_ENCRYPTION_KEY: dev-only-encryption-key-not-for-prod-9c0a7f3e2b1d4a5f
     depends_on:
       postgres:
         condition: service_healthy
