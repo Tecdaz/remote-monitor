@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Measurement DAO (REQ-WATCH-06).
@@ -16,6 +17,10 @@ import androidx.room.Query
  *
  * Schema export: `room.schemaLocation` (T-WATCH-18) is configured in
  * `app/build.gradle.kts`; the compiler writes the JSON to `app/schemas/`.
+ *
+ * T-WATCH-38: added `pendingCount(): Flow<Int>` so the home screen can
+ * observe the count reactively without polling. The merge-gate test
+ * uses `mockk(relaxed = true)`, so a new method does not break it.
  */
 @Dao
 interface MeasurementDao {
@@ -30,6 +35,9 @@ interface MeasurementDao {
 
     @Query("SELECT COUNT(*) FROM measurements")
     suspend fun count(): Int
+
+    @Query("SELECT COUNT(*) FROM measurements")
+    fun pendingCount(): Flow<Int>
 
     @Query("SELECT MIN(timestamp) FROM measurements")
     suspend fun minTimestamp(): Long?

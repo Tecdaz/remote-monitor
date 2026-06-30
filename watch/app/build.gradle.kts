@@ -68,6 +68,25 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+// T-WATCH-36: wire the merged debug manifest into the unit-test JVM
+// so Robolectric can resolve the ComponentActivity host
+// (`createAndroidComposeRule<ComponentActivity>` launches a LAUNCHER
+// intent and looks up the activity in the manifest). Without this the
+// test runner falls back to the empty default manifest with package
+// `org.robolectric.default`, and the intent can't be resolved.
+android {
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all { test ->
+            test.systemProperty(
+                "robolectric.manifest",
+                "$projectDir/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml"
+            )
+            test.systemProperty("robolectric.application", "com.remotemonitor.watch.WatchApplication")
+        }
+    }
+}
+
 dependencies {
     implementation(libs.play.services.wearable)
     implementation(platform(libs.compose.bom))
@@ -75,6 +94,7 @@ dependencies {
     implementation(libs.ui.graphics)
     implementation(libs.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.material3)
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui.tooling)
     implementation(libs.wear.tooling.preview)
@@ -118,6 +138,12 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.coroutines.test)
+    // T-WATCH-36: Compose UI test infra. Pure-JVM via Robolectric +
+    // createComposeRule() (no instrumentation device required).
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.ui.test.junit4)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.robolectric)
 
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.ui.test.junit4)

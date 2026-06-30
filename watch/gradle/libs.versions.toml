@@ -15,6 +15,17 @@ mockk = "1.13.13"
 turbine = "1.2.0"
 mockwebserver = "4.12.0"
 coroutinesTest = "1.9.0"
+# T-WATCH-36: Robolectric is required to host Compose UI tests in pure-JVM
+# mode (no instrumentation device). The Compose UI Test
+# `RobolectricIdlingStrategy` reads `Build.FINGERPRINT` at startup; the
+# only reliable way to set that field on JDK 17+ is to run the test under
+# Robolectric. 4.13 supports JDK 17 + the AndroidX lifecycle resolved by
+# the Compose BOM (currently ui-test:1.9.2 and lifecycle:2.9.4 per
+# app/gradle.lockfile). Earlier drafts of this comment referenced the
+# 1.5.x / 2.8.x version pair; the lockfile now resolves those artifacts
+# transitively via the Compose BOM 2024.09.00, so the 4.13 floor is what
+# matters, not the exact Compose UI Test minor.
+robolectric = "4.13"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
 moshi = "1.15.1"
@@ -39,6 +50,9 @@ ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview
 ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 compose-material3 = { group = "androidx.wear.compose", name = "compose-material3", version.ref = "composeMaterial3" }
+# T-WATCH-34: regular Material 3 is required for OutlinedTextField (Wear M3
+# 1.5.6 has no text-input component). The BOM provides the version.
+material3 = { group = "androidx.compose.material3", name = "material3" }
 compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation", version.ref = "composeFoundation" }
 compose-ui-tooling = { group = "androidx.wear.compose", name = "compose-ui-tooling", version.ref = "composeUiTooling" }
 wear-tooling-preview = { group = "androidx.wear", name = "wear-tooling-preview", version.ref = "wearToolingPreview" }
@@ -51,6 +65,15 @@ mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "mockwebserver" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+# T-WATCH-36: Robolectric runs the Android runtime on the JVM, which is
+# the only way to host `createComposeRule()` without an instrumentation
+# device. Documented deviation from the "no version constraints" rule
+# (the same shape as the Room entry above).
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+# AndroidX Test (testImplementation). The AndroidJUnit4 runner hosts the
+# test in an Activity; the artifact has no version in the Compose BOM
+# and resolves to the latest stable from Google Maven.
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit" }
 
 # Sync + data layer dependencies (T-WATCH-17..24: production code)
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }

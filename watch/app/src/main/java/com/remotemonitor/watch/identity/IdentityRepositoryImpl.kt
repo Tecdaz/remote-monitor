@@ -34,12 +34,12 @@ class IdentityRepositoryImpl(
         context.identityDataStore.data.map { it[KEY_PATIENT_ID] }.first()
 
     /** Set after the operator confirms the patient number on first launch. */
-    suspend fun setPatientNumber(value: String) {
+    override suspend fun setPatientNumber(value: String) {
         context.identityDataStore.edit { it[KEY_PATIENT_NUMBER] = value }
     }
 
     /** Set after a successful `POST /api/v1/patients` (explicit or auto-register). */
-    suspend fun setPatientId(value: String) {
+    override suspend fun setPatientId(value: String) {
         context.identityDataStore.edit { it[KEY_PATIENT_ID] = value }
     }
 
