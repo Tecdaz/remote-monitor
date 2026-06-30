@@ -1,0 +1,119 @@
+package com.remotemonitor.watch.api
+
+import com.remotemonitor.watch.data.MeasurementEntity
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Wire-shape test for [MeasurementEntity] (T-FIX-03, REQ-WATCH-52).
+ *
+ * Pins the four contract invariants the upload body must satisfy:
+ *  - snake_case keys (`local_id`, `heart_rate_bpm`, `spo2_percent`)
+ *  - ISO 8601 `Z`-suffixed string for the `timestamp` field (NOT
+ *    a raw epoch `Long` number — the backend's Pydantic `datetime`
+ *    would reject the raw number with `extra=\"forbid\"` and a type
+ *    error)
+ *  - nullable vital-sign fields emit explicit `null`
+ *
+ * The production Moshi is the one [ApiClient.create] uses, so this
+ * test is a live check against the same configuration the device
+ * ships.
+ */
+class MeasurementSerializationTest {
+
+    private val moshi: Moshi = Moshi.Builder()
+        // Same registration order as ApiClient.create() (T-FIX-02):
+        // 1. field-scoped adapter (must be added first so the
+        //    AdapterMethodsFactory is consulted before the reflection
+        //    factory asks for a `Long` adapter with the qualifier)
+        // 2. KotlinJsonAdapterFactory for the data-class reflection.
+        .add(Iso8601TimestampAdapter())
+        .add(KotlinJsonAdapterFactory())
+        .build()
+
+    @Test
+    fun measurement_body_uses_snake_case_and_iso_8601_timestamp() {
+        val entity = MeasurementEntity(
+            localId = "L1",
+            timestamp = 1_719_760_272_000L,
+            heartRateBpm = 72,
+            spo2Percent = null,
+        )
+
+        val adapter = moshi.adapter(MeasurementEntity::class.java)
+        val json = adapter.toJson(entity)
+        assertNotNull("adapter produced no JSON", json)
+
+        // Snake_case wire keys
+        assertTrue(
+            "body must use 'local_id' (snake_case), got: $json",
+            json.contains("\"local_id\":\"L1\""),
+        )
+        assertTrue(
+            "body must use 'heart_rate_bpm' (snake_case), got: $json",
+            json.contains("\"heart_rate_bpm\":72"),
+        )
+        assertTrue(
+            "body must emit explicit null for nullable spo2_percent, got: $json",
+            json.contains("\"spo2_percent\":null"),
+        )
+
+        // ISO 8601 timestamp with Z suffix (NOT a raw Long number)
+        val tsRegex = Regex("\"timestamp\":\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z\"")
+        assertTrue(
+            "body must serialize timestamp as ISO 8601 with 'Z' suffix, got: $json",
+            tsRegex.containsMatchIn(json),
+        )
+
+        // The exact ISO 8601 value for 1_719_760_272_000L is
+        // "2024-06-30T18:31:12Z" (UTC by definition of Instant).
+        assertTrue(
+            "body must contain the exact ISO 8601 instant for the test epoch, got: $json",
+            json.contains("\"timestamp\":\"2024-06-30T18:31:12Z\""),
+        )
+    }
+
+    @Test
+    fun measurement_body_does_not_leak_camelcase_or_raw_long_timestamp() {
+        // Negative-shape guard: even with correct snake_case keys,
+        // the body must NOT also contain the camelCase variants or a
+        // raw-number timestamp. This is the regression guard for R1
+        // in engram #319.
+        val entity = MeasurementEntity(
+            localId = "L2",
+            timestamp = 1_700_000_000_000L,
+            heartRateBpm = 80,
+            spo2Percent = 97.0,
+        )
+
+        val json = moshi.adapter(MeasurementEntity::class.java).toJson(entity)
+        assertEquals(
+            "body must not contain camelCase 'localId'",
+            false,
+            json.contains("\"localId\""),
+        )
+        assertEquals(
+            "body must not contain camelCase 'heartRateBpm'",
+            false,
+            json.contains("\"heartRateBpm\""),
+        )
+        assertEquals(
+            "body must not contain camelCase 'spo2Percent'",
+            false,
+            json.contains("\"spo2Percent\""),
+        )
+        // A raw-number timestamp would be "timestamp":1700000000000.
+        // The field type is Long so a number is technically valid JSON,
+        // but the contract requires a string. The string is required
+        // because the field is annotated with @Iso8601Timestamp.
+        assertEquals(
+            "body must not serialize timestamp as a raw number, got: $json",
+            false,
+            Regex("\"timestamp\":\\d+(\\.\\d+)?[^Z\"]").containsMatchIn(json),
+        )
+    }
+}
