@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -176,5 +178,61 @@ class OnboardingViewModelTest {
 
         assertEquals(PatientNumberErrorMessage, vm.state.value.error)
         assertEquals(false, vm.state.value.isSubmitting)
+    }
+
+    // --- navigation-race regression (PR 3 fresh-review follow-up) -------
+    //
+    // The original implementation used MutableSharedFlow(replay=0) with
+    // tryEmit, so a NavigateToHome event emitted before the first
+    // subscriber attached (e.g., a screen that started composing after
+    // the ViewModel had already produced the event) was silently
+    // dropped. The fix replaces the SharedFlow with a buffered Channel
+    // + receiveAsFlow, which guarantees the event is delivered to the
+    // FIRST collector regardless of when the emission happened.
+    //
+    // RED-first: this test must fail against the SharedFlow
+    // implementation (`eventReceived.isCompleted` stays false) and pass
+    // against the Channel implementation.
+
+    @Test
+    fun late_subscriber_still_receives_navigate_to_home() = runTest {
+        val identity = mockk<IdentityRepository>(relaxed = true)
+        val api = mockk<MeasurementsApi>()
+        coEvery { api.registerPatient(any(), any()) } returns
+            RegisterPatientResponse(
+                patientId = "uuid-1",
+                patientNumber = "P-00042",
+                createdAt = "2026-06-30T00:00:00Z",
+            )
+
+        val vm = newViewModel(identity, api, this)
+        vm.onPatientNumberChange("P-00042")
+        vm.onSubmit()
+        // Run the submit coroutine to completion. The event is emitted
+        // BEFORE we attach a collector — this is the realistic race the
+        // fresh review flagged (MainActivity's LaunchedEffect starts
+        // collecting after the ViewModel may have already emitted).
+        advanceUntilIdle()
+
+        val eventReceived = CompletableDeferred<OnboardingEvent>()
+        val collector = backgroundScope.launch {
+            vm.events.first().let { eventReceived.complete(it) }
+        }
+        // Give the collector a chance to run. With Channel +
+        // receiveAsFlow, the buffered event is delivered immediately.
+        // With SharedFlow(replay=0), the collector suspends forever
+        // waiting for a NEW emission.
+        advanceTimeBy(100)
+        runCurrent()
+
+        assertEquals(
+            "Late subscriber must still receive the NavigateToHome event",
+            true,
+            eventReceived.isCompleted,
+        )
+        if (eventReceived.isCompleted) {
+            assertEquals(OnboardingEvent.NavigateToHome, eventReceived.getCompleted())
+        }
+        collector.cancel()
     }
 }

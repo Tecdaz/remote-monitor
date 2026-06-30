@@ -4,12 +4,12 @@ import com.remotemonitor.watch.api.MeasurementsApi
 import com.remotemonitor.watch.api.RegisterPatientRequest
 import com.remotemonitor.watch.identity.IdentityRepository
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -58,8 +58,15 @@ class OnboardingViewModel(
     private val _state = MutableStateFlow(OnboardingUiState())
     val state: StateFlow<OnboardingUiState> = _state.asStateFlow()
 
-    private val _events = MutableSharedFlow<OnboardingEvent>(extraBufferCapacity = 1)
-    val events: SharedFlow<OnboardingEvent> = _events.asSharedFlow()
+    // One-shot events use a Channel + receiveAsFlow instead of a
+    // SharedFlow. With SharedFlow(replay=0) + tryEmit, an event emitted
+    // before any subscriber attached (e.g., the Compose LaunchedEffect
+    // in MainActivity collects events, but it can start AFTER the
+    // ViewModel has already emitted NavigateToHome) is silently
+    // dropped. A Channel buffers the event and guarantees delivery to
+    // the first collector regardless of subscription timing.
+    private val _events = Channel<OnboardingEvent>(Channel.BUFFERED)
+    val events: Flow<OnboardingEvent> = _events.receiveAsFlow()
 
     /** Update the input field and clear any previous error. */
     fun onPatientNumberChange(value: String) {
@@ -97,7 +104,7 @@ class OnboardingViewModel(
                 response
             }.onSuccess {
                 _state.update { it.copy(isSubmitting = false) }
-                _events.tryEmit(OnboardingEvent.NavigateToHome)
+                _events.trySend(OnboardingEvent.NavigateToHome)
             }.onFailure { e ->
                 _state.update {
                     it.copy(
