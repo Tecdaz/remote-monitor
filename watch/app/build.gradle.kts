@@ -55,6 +55,27 @@ dependencies {
     implementation(libs.wear.tooling.preview)
     implementation(libs.activity.compose)
     implementation(libs.core.splashscreen)
+
+    // Sync + data layer (T-WATCH-17..24 production code; Room + KSP added in T-WATCH-18)
+    implementation(libs.datastore.preferences)
+    implementation(libs.health.services.client)
+    implementation(libs.retrofit)
+    implementation(libs.converter.moshi)
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.logging)
+    implementation(libs.moshi)
+    implementation(libs.moshi.kotlin)
+    implementation(libs.lifecycle.runtime)
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.navigation.compose)
+
+    // Test
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.turbine)
+    testImplementation(libs.mockwebserver)
+    testImplementation(libs.coroutines.test)
+
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.ui.test.junit4)
     debugImplementation(libs.ui.tooling)

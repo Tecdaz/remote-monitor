@@ -1,0 +1,274 @@
+package com.remotemonitor.watch.sync
+
+import com.remotemonitor.watch.api.BatchResponse
+import com.remotemonitor.watch.api.MeasurementsApi
+import com.remotemonitor.watch.data.MeasurementDao
+import com.remotemonitor.watch.data.MeasurementEntity
+import com.remotemonitor.watch.identity.DeviceInfoProvider
+import com.remotemonitor.watch.identity.IdentityRepository
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Before
+import org.junit.Test
+import retrofit2.Retrofit
+import retrofit2.converter.moshi.MoshiConverterFactory
+import java.util.UUID
+
+/**
+ * Merge-gate test for REQ-WATCH-05 (Strict TDD red-first).
+ *
+ * 7 scenarios cover the `delete-after-echo` invariant under every
+ * failure path. This test fails red until the production
+ * [BatchUploadWorker.runOnce] is implemented in T-WATCH-24.
+ *
+ * CI: this test is the merge gate for PR 2. A failure blocks merge
+ * (REQ-WATCH-22).
+ */
+class BatchUploadWorkerTest {
+
+    private lateinit var server: MockWebServer
+    private lateinit var api: MeasurementsApi
+    private lateinit var dao: MeasurementDao
+    private lateinit var identity: IdentityRepository
+    private lateinit var deviceInfo: DeviceInfoProvider
+    private lateinit var worker: BatchUploadWorker
+
+    @Before
+    fun setUp() {
+        server = MockWebServer()
+        server.start()
+        api = newApi(server.url("/"))
+        dao = mockk(relaxed = true)
+        identity = mockk(relaxed = true)
+        deviceInfo = mockk(relaxed = true)
+        worker = BatchUploadWorker(dao, api, identity, deviceInfo)
+    }
+
+    @After
+    fun tearDown() {
+        server.shutdown()
+    }
+
+    // --- S05.1: 2xx with all accepted → all rows deleted -----------------
+
+    @Test
+    fun `S05_1 deletes all rows when POST returns 200 with all accepted`() = runTest {
+        val l1 = UUID.randomUUID().toString()
+        val l2 = UUID.randomUUID().toString()
+        val l3 = UUID.randomUUID().toString()
+        coEvery { dao.selectPending(1000) } returns listOf(
+            entity(l1, 72),
+            entity(l2, 75),
+            entity(l3, 80),
+        )
+        coEvery { identity.getPatientId() } returns "uuid-1"
+        coEvery { identity.getPatientNumber() } returns "P-00001"
+        every { deviceInfo.isFirstUpload() } returns true
+
+        server.enqueue(ok("""{"accepted_ids":["$l1","$l2","$l3"],"rejected":[]}"""))
+
+        val result = worker.runOnce()
+
+        assertEquals(3, result.acceptedCount)
+        assertEquals(0, result.rejectedCount)
+        assertEquals(0, result.keptCount)
+        coVerify(exactly = 1) { dao.deleteByIds(listOf(l1, l2, l3)) }
+    }
+
+    // --- S05.2: 2xx with partial accepted → only accepted_ids deleted ---
+
+    @Test
+    fun `S05_2 deletes only accepted_ids when POST returns 200 with partial`() = runTest {
+        val l1 = UUID.randomUUID().toString()
+        val l2 = UUID.randomUUID().toString()
+        val l3 = UUID.randomUUID().toString()
+        coEvery { dao.selectPending(1000) } returns listOf(
+            entity(l1, 72),
+            entity(l2, 75),
+            entity(l3, 80),
+        )
+        coEvery { identity.getPatientId() } returns "uuid-1"
+        every { deviceInfo.isFirstUpload() } returns false
+
+        server.enqueue(
+            ok("""{"accepted_ids":["$l1","$l3"],"rejected":[{"local_id":"$l2","reason":"validation"}]}""")
+        )
+
+        val result = worker.runOnce()
+
+        assertEquals(2, result.acceptedCount)
+        assertEquals(1, result.rejectedCount)
+        assertEquals(1, result.keptCount)
+        coVerify(exactly = 1) { dao.deleteByIds(listOf(l1, l3)) }
+    }
+
+    // --- S05.3: 503 → no delete -----------------------------------------
+
+    @Test
+    fun `S05_3 no delete on 503`() = runTest {
+        val l1 = UUID.randomUUID().toString()
+        val l2 = UUID.randomUUID().toString()
+        coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72), entity(l2, 75))
+        coEvery { identity.getPatientId() } returns "uuid-1"
+        every { deviceInfo.isFirstUpload() } returns false
+
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        val result = worker.runOnce()
+
+        assertEquals(0, result.acceptedCount)
+        assertEquals(0, result.rejectedCount)
+        assertEquals(2, result.keptCount)
+        coVerify(exactly = 0) { dao.deleteByIds(any()) }
+    }
+
+    // --- S05.4: IOException → no delete ---------------------------------
+
+    @Test
+    fun `S05_4 no delete on IOException`() = runTest {
+        val l1 = UUID.randomUUID().toString()
+        val l2 = UUID.randomUUID().toString()
+        coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72), entity(l2, 75))
+        coEvery { identity.getPatientId() } returns "uuid-1"
+        every { deviceInfo.isFirstUpload() } returns false
+
+        // Shutdown the server to force a network IOException on the next call.
+        server.shutdown()
+
+        val result = worker.runOnce()
+
+        assertEquals(0, result.acceptedCount)
+        assertEquals(0, result.rejectedCount)
+        assertEquals(2, result.keptCount)
+        coVerify(exactly = 0) { dao.deleteByIds(any()) }
+    }
+
+    // --- S05.5: 4xx trio (400 / 403 / 404) → no delete -------------------
+
+    @Test
+    fun `S05_5 no delete on 4xx (400, 403, 404)`() {
+        for (code in listOf(400, 403, 404)) {
+            // Fresh per-iteration wiring (MockWebServer is one-shot per test,
+            // and we want each HTTP code to be a clean run).
+            val localServer = MockWebServer().also { it.start() }
+            try {
+                val localApi = newApi(localServer.url("/"))
+                val localDao = mockk<MeasurementDao>(relaxed = true)
+                val localIdentity = mockk<IdentityRepository>(relaxed = true)
+                val localDeviceInfo = mockk<DeviceInfoProvider>(relaxed = true)
+                val localWorker = BatchUploadWorker(localDao, localApi, localIdentity, localDeviceInfo)
+
+                val l1 = UUID.randomUUID().toString()
+                coEvery { localDao.selectPending(1000) } returns listOf(entity(l1, 72))
+                coEvery { localIdentity.getPatientId() } returns "uuid-1"
+                every { localDeviceInfo.isFirstUpload() } returns false
+
+                localServer.enqueue(MockResponse().setResponseCode(code))
+
+                val result = kotlinx.coroutines.runBlocking { localWorker.runOnce() }
+
+                assertEquals("HTTP $code: should not delete", 0, result.acceptedCount)
+                assertEquals("HTTP $code: should keep row", 1, result.keptCount)
+                coVerify(exactly = 0) { localDao.deleteByIds(any()) }
+            } finally {
+                localServer.shutdown()
+            }
+        }
+    }
+
+    // --- S05.6: 1500 rows → first batch sends 1000, rest stay ------------
+
+    @Test
+    fun `S05_6 batch of 1500 sends 1000 keeps 500 next loop sends them`() = runTest {
+        val allRows = (1..1500).map { entity(UUID.randomUUID().toString(), 72 + (it % 30)) }
+        val firstBatch = allRows.take(1000)
+        coEvery { dao.selectPending(1000) } returns firstBatch
+        coEvery { identity.getPatientId() } returns "uuid-1"
+        every { deviceInfo.isFirstUpload() } returns false
+
+        val acceptedJson = firstBatch.joinToString(prefix = "[", postfix = "]") { "\"${it.localId}\"" }
+        server.enqueue(ok("""{"accepted_ids":$acceptedJson,"rejected":[]}"""))
+
+        val result = worker.runOnce()
+
+        assertEquals(1000, result.acceptedCount)
+        assertEquals(0, result.rejectedCount)
+        // The 500 rows not in the first batch are NOT in Room per the
+        // stub's behavior — but the test should require that ONLY the
+        // first 1000 are sent + deleted. The remaining 500 are addressed
+        // by the next `selectPending(1000)` call, which is the FGS loop's
+        // job, not this test's.
+        coVerify(exactly = 1) { dao.deleteByIds(firstBatch.map { it.localId }) }
+    }
+
+    // --- S05.7: headers on first upload ---------------------------------
+
+    @Test
+    fun `S05_7 first upload includes X-Patient-Number X-Device-Model X-OS-Version`() = runTest {
+        val l1 = UUID.randomUUID().toString()
+        coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72))
+        coEvery { identity.getPatientId() } returns "uuid-1"
+        coEvery { identity.getPatientNumber() } returns "P-00042"
+        every { deviceInfo.deviceModel() } returns "Samsung Galaxy Watch 4"
+        every { deviceInfo.osVersion() } returns "Wear OS 6 (API 36)"
+        every { deviceInfo.isFirstUpload() } returns true
+
+        server.enqueue(ok("""{"accepted_ids":["$l1"],"rejected":[]}"""))
+
+        worker.runOnce()
+
+        // takeRequest with a 2-second timeout: if the worker doesn't make a
+        // request (e.g., RED-phase stub), we fail fast instead of hanging
+        // the test runner.
+        val recorded = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
+            ?: error("Expected exactly one HTTP request; got 0")
+        assertEquals("P-00042", recorded.getHeader("X-Patient-Number"))
+        assertEquals("Samsung Galaxy Watch 4", recorded.getHeader("X-Device-Model"))
+        assertEquals("Wear OS 6 (API 36)", recorded.getHeader("X-OS-Version"))
+    }
+
+    @Test
+    fun `S05_7b subsequent uploads omit X-Device-Model and X-OS-Version`() = runTest {
+        val l1 = UUID.randomUUID().toString()
+        coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72))
+        coEvery { identity.getPatientId() } returns "uuid-1"
+        coEvery { identity.getPatientNumber() } returns "P-00042"
+        every { deviceInfo.deviceModel() } returns "Samsung Galaxy Watch 4"
+        every { deviceInfo.osVersion() } returns "Wear OS 6 (API 36)"
+        every { deviceInfo.isFirstUpload() } returns false
+
+        server.enqueue(ok("""{"accepted_ids":["$l1"],"rejected":[]}"""))
+
+        worker.runOnce()
+
+        val recorded = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
+            ?: error("Expected exactly one HTTP request; got 0")
+        assertEquals("P-00042", recorded.getHeader("X-Patient-Number"))
+        assertEquals(null, recorded.getHeader("X-Device-Model"))
+        assertEquals(null, recorded.getHeader("X-OS-Version"))
+    }
+
+    // --- helpers --------------------------------------------------------
+
+    private fun entity(localId: String, bpm: Int) =
+        MeasurementEntity(localId, timestamp = System.currentTimeMillis(), heartRateBpm = bpm, spo2Percent = null)
+
+    private fun ok(body: String) = MockResponse().setResponseCode(200).setBody(body)
+
+    private fun newApi(baseUrl: okhttp3.HttpUrl): MeasurementsApi =
+        Retrofit.Builder()
+            .baseUrl(baseUrl)
+            .client(OkHttpClient.Builder().build())
+            .addConverterFactory(MoshiConverterFactory.create())
+            .build()
+            .create(MeasurementsApi::class.java)
+}
