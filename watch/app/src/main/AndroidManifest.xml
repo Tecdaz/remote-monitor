@@ -1,16 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Health Services: heart rate (BPM) collection. SpO2 uses Samsung SDK. -->
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+
+    <!-- Network: HTTPS batch uploads to backend. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- ForegroundService: persistent sync loop. FOREGROUND_SERVICE_HEALTH is the
+         Wear OS 5+ type for health-data FGSs; required on API 34+. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <uses-feature android:name="android.hardware.type.watch" />
+    <!-- Notifications (Android 13+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Wear OS device feature. -->
+    <uses-feature
+        android:name="android.hardware.type.watch"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.sensor.heartrate"
+        android:required="false" />
 
     <application
-        android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
+        android:name=".WatchApplication"
         android:label="@string/app_name"
-        android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.Watch"
+        android:allowBackup="false"
+        android:supportsRtl="true">
+
         <uses-library
             android:name="com.google.android.wearable"
             android:required="true" />
@@ -19,8 +42,8 @@
             android:required="false" />
 
         <!--
-               Set to true if your app is Standalone, that is, it does not require the handheld
-               app to run.
+             Set to true if your app is Standalone, that is, it does not require the handheld
+             app to run.
         -->
         <meta-data
             android:name="com.google.android.wearable.standalone"
@@ -37,6 +60,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- SyncForegroundService: placeholder for PR 1. Real implementation
+             lands in PR 2 (T-WATCH-30). Declared here so the manifest is valid
+             and the service is recognized by the system. -->
+        <service
+            android:name=".sync.SyncForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="health" />
+
     </application>
 
 </manifest>
