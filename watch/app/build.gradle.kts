@@ -56,6 +56,14 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.core.splashscreen)
 
+    // Samsung Health Sensor SDK AAR (REQ-WATCH-12).
+    // The real AAR lives at watch/libs/samsung-health-tracking.aar; it must be
+    // downloaded manually from https://developer.samsung.com/health/sensor.
+    // The line below is commented out because the placeholder in the repo
+    // is not a valid AAR — see watch/libs/README.md for the install steps.
+    // TODO(sdd-apply): add AAR when available — uncomment the line below.
+    // implementation(files("libs/samsung-health-tracking.aar"))
+
     // Sync + data layer (T-WATCH-17..24 production code; Room + KSP added in T-WATCH-18)
     implementation(libs.datastore.preferences)
     implementation(libs.health.services.client)
