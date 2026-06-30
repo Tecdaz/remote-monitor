@@ -2,6 +2,8 @@ package com.remotemonitor.watch
 
 import android.app.Application
 import androidx.room.Room
+import com.remotemonitor.watch.api.ApiClient
+import com.remotemonitor.watch.api.MeasurementsApi
 import com.remotemonitor.watch.data.AppDatabase
 import com.remotemonitor.watch.data.MeasurementDao
 import com.remotemonitor.watch.identity.DeviceInfoProvider
@@ -61,13 +63,17 @@ class WatchApplication : Application() {
     // --- API client -----------------------------------------------------
 
     /**
-     * Placeholder until [com.remotemonitor.watch.api.ApiClient] lands in
-     * T-WATCH-22. For now, the API is a no-op — the worker never reaches
-     * a real upload in production until the ApiClient is built and
-     * `WatchApplication.measurementsApi` is wired to it.
+     * The Retrofit-backed API client (T-WATCH-22). Built lazily on first
+     * access; the OkHttp + Retrofit graph is created once per process.
+     * `BuildConfig.API_BASE_URL` is set per build type (debug / release)
+     * in `app/build.gradle.kts`.
      */
-    val measurementsApi: com.remotemonitor.watch.api.MeasurementsApi =
-        StubMeasurementsApi()
+    val measurementsApi: MeasurementsApi by lazy {
+        ApiClient.create(
+            baseUrl = BuildConfig.API_BASE_URL,
+            debug = BuildConfig.DEBUG,
+        )
+    }
 
     // --- Sync worker (merge-gate class) ---------------------------------
 
@@ -83,27 +89,4 @@ class WatchApplication : Application() {
     override fun onCreate() {
         super.onCreate()
     }
-}
-
-/**
- * Placeholder [com.remotemonitor.watch.api.MeasurementsApi] that
- * throws if invoked. Replaced by a Retrofit-backed client in
- * T-WATCH-22. The merge-gate test uses MockWebServer so this
- * stub never runs in test.
- */
-private class StubMeasurementsApi : com.remotemonitor.watch.api.MeasurementsApi {
-    override suspend fun uploadMeasurements(
-        patientId: String,
-        batch: List<com.remotemonitor.watch.data.MeasurementEntity>,
-        patientNumber: String,
-        deviceModel: String?,
-        osVersion: String?,
-    ): com.remotemonitor.watch.api.BatchResponse =
-        throw NotImplementedError("MeasurementsApi is a stub in PR 2; real ApiClient lands in T-WATCH-22")
-
-    override suspend fun registerPatient(
-        patientNumber: String,
-        body: com.remotemonitor.watch.api.RegisterPatientRequest,
-    ): com.remotemonitor.watch.api.RegisterPatientResponse =
-        throw NotImplementedError("MeasurementsApi is a stub in PR 2; real ApiClient lands in T-WATCH-22")
 }

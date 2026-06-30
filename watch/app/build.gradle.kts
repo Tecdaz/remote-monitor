@@ -27,8 +27,16 @@ android {
     }
 
     buildTypes {
+        debug {
+            // T-WATCH-22: local backend on the emulator host (10.0.2.2 = host
+            // loopback). Real device builds would point at a staging URL.
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000/\"")
+        }
         release {
             isMinifyEnabled = false
+            // T-WATCH-22: production URL is a placeholder; the orchestrator
+            // pins the real URL at build time per environment.
+            buildConfigField("String", "API_BASE_URL", "\"https://api.example.com/\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -42,6 +50,9 @@ android {
     useLibrary("wear-sdk")
     buildFeatures {
         compose = true
+        // T-WATCH-22: BuildConfig.API_BASE_URL is consumed by ApiClient.
+        // AGP 8+ requires buildConfig = true to emit BuildConfig.java.
+        buildConfig = true
     }
 }
 
