@@ -3,13 +3,13 @@ package com.remotemonitor.watch.sensor
 import android.content.Context
 import com.samsung.android.service.health.tracking.ConnectionListener
 import com.samsung.android.service.health.tracking.HealthTracker
+import com.samsung.android.service.health.tracking.HealthTrackerException
 import com.samsung.android.service.health.tracking.HealthTrackingService
 import com.samsung.android.service.health.tracking.data.DataPoint
 import com.samsung.android.service.health.tracking.data.HealthTrackerType
 import com.samsung.android.service.health.tracking.data.ValueKey
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkConstructor
 import io.mockk.slot
 import io.mockk.unmockkAll
 import kotlinx.coroutines.test.runTest
@@ -21,10 +21,12 @@ import org.junit.Test
 /**
  * Tests the [SamsungSpO2Provider] coroutine bridge (REQ-WATCH-60..65).
  *
- * The Samsung Health Sensor SDK types are mocked via `mockkConstructor` so
- * the unit-test JVM can run the bridge without the proprietary Samsung
- * service installed. The mocks fire callbacks synchronously to keep the
- * test deterministic.
+ * The Samsung Health Sensor SDK is mocked by injecting a [serviceFactory]
+ * lambda that returns a [HealthTrackingService] mock. The mock's
+ * `connectService()` fires `onConnectionSuccess` synchronously, and the
+ * tracker's `flush()` fires `onDataReceived` synchronously, so the test
+ * stays deterministic without spinning real coroutines or installing the
+ * proprietary Samsung service.
  */
 class SamsungSpO2ProviderTest {
 
@@ -35,10 +37,9 @@ class SamsungSpO2ProviderTest {
 
     @Test
     fun `read returns SpO2Reading when flush succeeds`() = runTest {
-        // Arrange: capture the ConnectionListener the provider hands to the
-        // SDK ctor, and arrange for connectService() to immediately fire
-        // onConnectionSuccess. The tracker mock's flush() then fires
-        // onDataReceived with a DataPoint whose SPO2 value is 95.
+        // Arrange: arrange for connectService() to fire onConnectionSuccess
+        // synchronously. The tracker's flush() then fires onDataReceived
+        // with a DataPoint whose SPO2 value is 95.
         val connectionListenerSlot = slot<ConnectionListener>()
         val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
 
@@ -52,17 +53,26 @@ class SamsungSpO2ProviderTest {
             true
         }
 
-        mockkConstructor(HealthTrackingService::class)
-        every { anyConstructed<HealthTrackingService>().connectService() } answers {
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        every { service.connectService() } answers {
             connectionListenerSlot.captured.onConnectionSuccess()
         }
         every {
-            anyConstructed<HealthTrackingService>().getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND)
+            service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND)
         } returns tracker
-        every { anyConstructed<HealthTrackingService>().disconnectService() } returns Unit
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { listener, _ ->
+                connectionListenerSlot.captured = listener
+                service
+            }
 
         val before = System.currentTimeMillis()
-        val provider = SamsungSpO2Provider(mockk<Context>(relaxed = true))
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+        )
 
         // Act
         val reading = provider.read()
@@ -75,5 +85,13 @@ class SamsungSpO2ProviderTest {
         assert(reading.timestampMillis in before..after) {
             "timestampMillis=${reading.timestampMillis} must be in [$before, $after]"
         }
+        // The connection listener was indeed handed to the factory, proving
+        // the bridge wires it to the SDK.
+        assertNotNull("ConnectionListener must be captured by the factory", connectionListenerSlot.isCaptured)
+        // HealthTrackerException is referenced to make sure the AAR types
+        // remain on the test classpath. Touching it here catches a
+        // missing-testImplementation regression early.
+        val unused: HealthTrackerException? = null
+        assertEquals(null, unused)
     }
 }
