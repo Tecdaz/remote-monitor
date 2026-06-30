@@ -115,7 +115,16 @@ dependencies {
     // reproducibility — no network fetch at build time. See
     // watch/app/libs/README.md for the install / upgrade steps and the
     // version table.
-    implementation(files("libs/samsung-health-sensor-api-1.4.1.aar"))
+    //
+    // The AAR is loaded via a `flatDir` repository declared in
+    // settings.gradle.kts so the test compile classpath picks up the
+    // SDK types (`HealthTrackingService`, `ConnectionListener`, etc.)
+    // that the SamsungSpO2Provider unit tests reference. Using
+    // `implementation(files(...))` alone works for the main compile
+    // classpath but does not propagate to the test compile classpath
+    // in AGP 9.x.
+    implementation("com.samsung.android.service.health:samsung-health-sensor-api:1.4.1@aar")
+    testImplementation("com.samsung.android.service.health:samsung-health-sensor-api:1.4.1@aar")
 
     // Sync + data layer (T-WATCH-17..24 production code; Room + KSP added in T-WATCH-18)
     implementation(libs.datastore.preferences)
