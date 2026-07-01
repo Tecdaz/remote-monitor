@@ -5,10 +5,13 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Heart rate sensor source (REQ-WATCH-01).
  *
- * Wraps Android Health Services' `PassiveMonitoringClient` for
- * battery-efficient, always-on BPM collection. Implementation lands in
- * [HealthServicesHeartRateSensor] once the dependency tree is wired
- * (Health Services Client + Samsung SDK per REQ-WATCH-29).
+ * Implementation lives in [SamsungHeartRateProvider], which wraps the
+ * Samsung Health Sensor SDK's `HEART_RATE_CONTINUOUS` tracker (AAR
+ * v1.4.1). The previous Health-Services-backed
+ * `HealthServicesHeartRateSensor` was REMOVED in the
+ * `feat-watch-samsung-hr-ibi` cycle (REQ-WATCH-HR-IBI-15) — the
+ * Samsung SDK is the only path that exposes IBI for HRV
+ * computation, and the project fleet is Samsung-only.
  *
  * The sensor is abstracted behind an interface so the
  * [SensorOrchestrator] can be unit-tested with a fake.
@@ -31,8 +34,7 @@ interface HeartRateSensor {
  * cycle (REQ-WATCH-HR-IBI-07) to carry inter-beat-interval data from
  * the Samsung `HEART_RATE_CONTINUOUS` tracker. Both are defaulted to
  * `null` at the END of the parameter list so existing call sites
- * (`HealthServicesHeartRateSensor`, `SensorOrchestratorTest`,
- * `HealthServicesHeartRateSensorTest`) keep compiling without changes.
+ * (`SensorOrchestratorTest`, etc.) keep compiling without changes.
  */
 data class HeartRateReading(
     val beatsPerMinute: Int,

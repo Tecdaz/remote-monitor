@@ -11,7 +11,7 @@ import com.remotemonitor.watch.identity.DeviceInfoProviderImpl
 import com.remotemonitor.watch.identity.IdentityRepository
 import com.remotemonitor.watch.identity.IdentityRepositoryImpl
 import com.remotemonitor.watch.sensor.HeartRateSensor
-import com.remotemonitor.watch.sensor.HealthServicesHeartRateSensor
+import com.remotemonitor.watch.sensor.SamsungHeartRateProvider
 import com.remotemonitor.watch.sensor.SamsungSpO2Provider
 import com.remotemonitor.watch.sensor.SensorOrchestrator
 import com.remotemonitor.watch.sensor.SpO2Provider
@@ -76,7 +76,15 @@ class WatchApplication : Application() {
     // onConnectionFailed / timeout) and the orchestrator will insert
     // rows with spo2Percent = null.
     val spO2Provider: SpO2Provider by lazy { SamsungSpO2Provider(this) }
-    val heartRateSensor: HeartRateSensor by lazy { HealthServicesHeartRateSensor(this) }
+    // REQ-WATCH-HR-IBI-01..09 (feat-watch-samsung-hr-ibi): wire the
+    // Samsung SDK-backed HR provider. The previous
+    // HealthServicesHeartRateSensor (Jetpack `androidx.health.services.client`)
+    // is REMOVED from the wiring because the Samsung SDK is the only
+    // tracker in our fleet (SM-R870) AND the only path that exposes
+    // IBI_LIST for HRV computation. The `heart-services-client`
+    // Gradle dependency is left in place for now (REQ-WATCH-HR-IBI-15
+    // out-of-scope marker — removal is a follow-up cycle).
+    val heartRateSensor: HeartRateSensor by lazy { SamsungHeartRateProvider(this) }
 
     val sensorOrchestrator: SensorOrchestrator by lazy {
         SensorOrchestrator(
