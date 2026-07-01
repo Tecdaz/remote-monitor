@@ -20,8 +20,10 @@ import kotlin.coroutines.resume
  * **Lifecycle (REQ-WATCH-60..65)**: each [read] opens a fresh
  * [HealthTrackingService] (no persistent connection state), waits for
  * `onConnectionSuccess`, requests a `SPO2_ON_DEMAND` tracker, sets an
- * event listener, calls `flush()`, and resumes the coroutine on the
- * first `onDataReceived`. The `disconnectService()` call runs on every
+ * event listener, and resumes the coroutine on the first
+ * `onDataReceived`. The SDK's `SPO2_ON_DEMAND` triggers the
+ * measurement internally on `setEventListener`; we do NOT call
+ * `tracker.flush()` (see "No `flush()` call" note below). The `disconnectService()` call runs on every
  * terminal path: the 5 normal-resume paths explicitly (REQ-WATCH-70..74),
  * plus the cancellation hook as a defensive backup. This ensures no
  * binder connection to `com.samsung.android.service.health` is leaked
@@ -34,15 +36,14 @@ import kotlin.coroutines.resume
  * [com.remotemonitor.watch.sensor.SensorOrchestrator] only invokes
  * [read] from a single coroutine, so a mutex is unnecessary today.
  *
- * **C1..C5 lifecycle details**: happy path, 30s `withTimeoutOrNull`
- * (REQ-WATCH-62), `onConnectionFailed` handling (REQ-WATCH-74), and
- * the cancellation hook (REQ-WATCH-65) are all in place. The
- * `flush() == false` short-circuit that was added in C3 was REMOVED
- * by `fix-samsung-spo2-flush-bug` — AAR v1.4.1 disassembly proved
- * `false` is informational (no flush concept for `SPO2_ON_DEMAND`),
- * not "tracker busy". The current contract spans REQ-WATCH-60..78;
- * see REQ-WATCH-63 / S-01 for the corrected rationale and the 30s
- * `withTimeoutOrNull` as the termination guarantee.
+ * **No `flush()` call** for `SPO2_ON_DEMAND`. AAR v1.4.1 unbinds the
+ * binder connection after the `Flush Not supported for SPO2` log, so
+ * `TrackerEventListener.onDataReceived` would never fire (see engram
+ * `discovery/samsung-spo2-flush-unbinds-connection`). The 30s
+ * `withTimeoutOrNull` (REQ-WATCH-62) is the sole termination guarantee
+ * for "SDK never fires a callback". The current contract spans
+ * REQ-WATCH-60..78; see REQ-WATCH-63 / S-01 for the corrected
+ * rationale.
  *
  * **Testability deviation from design #333**: the design's code shape
  * constructs `HealthTrackingService(listener, context)` directly. We
@@ -133,16 +134,23 @@ class SamsungSpO2Provider(
                                 service.disconnectService()
                             }
                         })
-                        // AAR v1.4.1 disassembly (engram #362) proved that
-                        // `flush()` returns `false` for `SPO2_ON_DEMAND`
-                        // because the tracker type has no flush concept,
-                        // NOT because the tracker is busy. Treat the return
-                        // as informational; the 30s `withTimeoutOrNull`
-                        // (REQ-WATCH-62) is the termination guarantee. We
-                        // still CALL `flush()` to preserve synchronous
-                        // delivery on flush-supporting tracker types
-                        // (REQ-WATCH-76) and for forward-compat.
-                        tracker.flush()
+                        // AAR v1.4.1: we MUST NOT call `tracker.flush()`
+                        // for `SPO2_ON_DEMAND`. Real-device E2E on SM-R870
+                        // (engram `discovery/samsung-spo2-flush-unbinds-connection`)
+                        // proved the SDK unbinds the binder connection to
+                        // `com.samsung.android.service.health` after logging
+                        // `Flush Not supported for SPO2`; `TrackerEventListener
+                        // .onDataReceived` is NEVER fired post-unbind.
+                        // Removing the call entirely (option c from design
+                        // #365) is the only viable path: the SDK triggers
+                        // the SPO2_ON_DEMAND measurement via its own
+                        // internal mechanism after `setEventListener`.
+                        // The 30s `withTimeoutOrNull` (REQ-WATCH-62) is
+                        // the sole termination guarantee. Unit tests
+                        // guard this with `verify(exactly = 0) {
+                        // tracker.flush() }` (SamsungSpO2ProviderTest
+                        // `read waits for onDataReceived (no flush call
+                        // for SPO2_ON_DEMAND)`).
                     }
 
                     override fun onConnectionFailed(error: HealthTrackerException) {

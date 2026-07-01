@@ -40,10 +40,14 @@ class SamsungSpO2ProviderTest {
     }
 
     @Test
-    fun `read returns SpO2Reading when flush succeeds`() = runTest {
+    fun `read returns SpO2Reading on onDataReceived`() = runTest {
         // Arrange: arrange for connectService() to fire onConnectionSuccess
-        // synchronously. The tracker's flush() then fires onDataReceived
-        // with a DataPoint whose SPO2 value is 95.
+        // synchronously. The tracker's setEventListener() registration
+        // then fires onDataReceived with a DataPoint whose SPO2 value
+        // is 95 (this mirrors what the real Samsung SDK does — it fires
+        // onDataReceived after the listener is registered, not via
+        // flush()). Per WU-5 the impl no longer calls tracker.flush()
+        // for SPO2_ON_DEMAND (option c from design #365).
         val connectionListenerSlot = slot<ConnectionListener>()
         val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
 
@@ -51,10 +55,11 @@ class SamsungSpO2ProviderTest {
         every { dataPoint.getValue(ValueKey.SpO2Set.SPO2) } returns 95
 
         val tracker = mockk<HealthTracker>(relaxed = true)
-        every { tracker.setEventListener(capture(trackerListenerSlot)) } returns Unit
-        every { tracker.flush() } answers {
+        // setEventListener is the real-world trigger for the SDK to
+        // fire onDataReceived. Capturing the slot lets the answer block
+        // invoke the listener on the SDK's behalf.
+        every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
             trackerListenerSlot.captured.onDataReceived(listOf(dataPoint))
-            true
         }
 
         val service = mockk<HealthTrackingService>(relaxed = true)
@@ -98,6 +103,10 @@ class SamsungSpO2ProviderTest {
         // last interaction with the mock is the assertion, not a dummy
         // null comparison.
         verify(exactly = 1) { service.disconnectService() }
+        // Asymmetry check: the impl MUST NOT call tracker.flush() for
+        // SPO2_ON_DEMAND (see WU-5 / engram
+        // `discovery/samsung-spo2-flush-unbinds-connection`).
+        verify(exactly = 0) { tracker.flush() }
         // HealthTrackerException is referenced to make sure the AAR types
         // remain on the test classpath. Touching it here catches a
         // missing-testImplementation regression early.
@@ -118,24 +127,27 @@ class SamsungSpO2ProviderTest {
      * unchanged.
      */
     /**
-     * REQ-WATCH-63 (modified) / S-01: when `tracker.flush()` returns
-     * `false` — which AAR v1.4.1 does for `SPO2_ON_DEMAND` because
-     * that tracker type has no flush concept (NOT because the tracker
-     * is busy) — `read()` MUST NOT short-circuit. It must continue
-     * waiting for `onDataReceived` and return the reading when the
-     * callback fires. The 30s `withTimeoutOrNull` (REQ-WATCH-62) is
-     * the termination guarantee.
+     * REQ-WATCH-63 (modified) / S-01: for `SPO2_ON_DEMAND` the
+     * implementation MUST NOT call `tracker.flush()` at all. AAR v1.4.1
+     * (confirmed on real SM-R870, engram `discovery/samsung-spo2-flush-unbinds-connection`)
+     * unbinds the binder connection to `com.samsung.android.service.health`
+     * after logging `Flush Not supported for SPO2`; `TrackerEventListener.onDataReceived`
+     * is then NEVER fired. Removing the call is the only viable path
+     * (option c from design #365, after option e was proven insufficient
+     * by the WU-4 E2E run). `read()` must still wait for `onDataReceived`
+     * and return the reading when the listener fires. The 30s
+     * `withTimeoutOrNull` (REQ-WATCH-62) is the termination guarantee.
      *
-     * RED-compression: the impl's `readTimeoutMs` is 5_000L. If the
-     * impl retains the `if (!tracker.flush()) { resume(null) }`
-     * short-circuit, `read()` returns `null` and this test fails the
-     * `result.percent == 97.0` assertion (a `null` reading is not
-     * `SpO2Reading(percent = 97.0)`). With the fix, the listener
-     * fires `onDataReceived` and `read()` returns
-     * `SpO2Reading(percent = 97.0)`.
+     * RED-asymmetry check: the test asserts `verify(exactly = 0) {
+     * tracker.flush() }`. This will FAIL on the current implementation
+     * (which still calls `tracker.flush()` as a bare statement per
+     * WU-2's edit) and PASS only after the call is removed entirely
+     * (WU-5). The `every { tracker.flush() } returns false` mock is
+     * kept so the test compiles if a future regression accidentally
+     * re-introduces the call; the asymmetry check is what catches it.
      */
     @Test
-    fun `read waits for onDataReceived when flush returns false`() = runTest {
+    fun `read waits for onDataReceived (no flush call for SPO2_ON_DEMAND)`() = runTest {
         val connectionListenerSlot = slot<ConnectionListener>()
         val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
 
@@ -187,10 +199,17 @@ class SamsungSpO2ProviderTest {
 
         val result = deferred.await()
         assertNotNull(
-            "read() must return a SpO2Reading when onDataReceived fires after flush() == false",
+            "read() must return a SpO2Reading when onDataReceived fires (no flush call)",
             result,
         )
         assertEquals(97.0, result!!.percent, 0.001)
+        // Asymmetry check (per WU-5 corrective fix): the impl MUST NOT
+        // call tracker.flush() for SPO2_ON_DEMAND. AAR v1.4.1 unbinds
+        // the binder on the flush failure, killing the onDataReceived
+        // callback. See engram `discovery/samsung-spo2-flush-unbinds-connection`.
+        // This verify guards against regression to option (e) or to
+        // the pre-WU-2 short-circuit behavior.
+        verify(exactly = 0) { tracker.flush() }
     }
 
     /**
@@ -371,12 +390,14 @@ class SamsungSpO2ProviderTest {
      * to `com.samsung.android.service.health` stays open — that is the
      * binder leak this change is fixing.
      *
-     * Pattern: the `tracker.flush()` answer block fires the captured
-     * `TrackerEventListener.onError` synchronously (mirroring the
-     * happy-path test, which fires `onDataReceived` from inside
-     * `flush()`). `flush()` itself returns `true` so the impl's
-     * `if (!tracker.flush())` short-circuit does NOT fire — the
-     * resume must come through the listener, not the flush branch.
+     * Pattern: the `tracker.setEventListener()` answer block fires
+     * the captured `TrackerEventListener.onError` synchronously
+     * (mirroring the happy-path test, which fires `onDataReceived`
+     * from inside `setEventListener()`). This is the real-world
+     * mechanism — the SDK fires the callback after listener
+     * registration, not via `tracker.flush()`. Per WU-5 the impl no
+     * longer calls `tracker.flush()` for SPO2_ON_DEMAND (option c
+     * from design #365), so the previous flush-based trigger is dead.
      */
     @Test
     fun `read returns null on tracker error`() = runTest {
@@ -384,12 +405,10 @@ class SamsungSpO2ProviderTest {
         val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
 
         val tracker = mockk<HealthTracker>(relaxed = true)
-        every { tracker.setEventListener(capture(trackerListenerSlot)) } returns Unit
-        every { tracker.flush() } answers {
+        every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
             trackerListenerSlot.captured.onError(
                 mockk<HealthTracker.TrackerError>(relaxed = true)
             )
-            true
         }
 
         val service = mockk<HealthTrackingService>(relaxed = true)
@@ -416,5 +435,9 @@ class SamsungSpO2ProviderTest {
         val result = withTimeout(1_000L) { provider.read() }
         assertNull("read() must return null when the tracker fires onError", result)
         verify(exactly = 1) { service.disconnectService() }
+        // Asymmetry check: the impl MUST NOT call tracker.flush() for
+        // SPO2_ON_DEMAND (see WU-5 / engram
+        // `discovery/samsung-spo2-flush-unbinds-connection`).
+        verify(exactly = 0) { tracker.flush() }
     }
 }
