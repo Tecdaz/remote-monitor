@@ -246,6 +246,11 @@ async def upload_measurements(
                 else None
             ),
             "received_at": received_at.isoformat(),
+            "ibis_ms": (
+                list(first_item.ibis_ms)
+                if first_item.ibis_ms is not None
+                else None
+            ),
         }
         try:
             await manager.publish(
