@@ -6,14 +6,10 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -25,14 +21,17 @@ import org.junit.Test
 
 /**
  * Tests the [SensorOrchestrator] wiring (REQ-WATCH-01, REQ-WATCH-02,
- * REQ-WATCH-03) without requiring real Health Services.
+ * REQ-WATCH-03, REQ-WATCH-HR-IBI) without requiring real Health Services.
  *
  * - The [HeartRateSensor] is a fake.
- * - The [SpO2Provider] is a fake (we don't request SpO2 in this test —
- *   the orchestrator writes BPM-only rows).
+ * - The [SpO2Provider] is a fake; per the 2026-07-01 product decision
+ *   "Quiero que solo se mida el HR", the orchestrator NEVER calls
+ *   `spO2Provider.read()`. The provider is still injected (for DI) so
+ *   the wiring can stay unchanged, but its only purpose is to keep the
+ *   `WatchApplication` ServiceLocator stable.
  * - The [MeasurementDao] is mocked; we capture the inserted rows.
  */
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SensorOrchestratorTest {
 
     @Test
@@ -64,28 +63,32 @@ class SensorOrchestratorTest {
         assertEquals(2, captured.size)
         val first = captured[0]
         assertEquals(72, first.heartRateBpm)
-        assertEquals(null, first.spo2Percent)
+        assertNull("HR-only mode: spo2Percent must be null in every row", first.spo2Percent)
         assertNotNull("localId must be a UUID v4", first.localId.takeIf { it.length == 36 })
         val second = captured[1]
         assertEquals(null, second.heartRateBpm)
     }
 
     /**
-     * REQ-WATCH-66: the orchestrator calls [SpO2Provider.read] at most
-     * every `spO2RequestPeriodMs`. We inject 50 ms and advance virtual
-     * time by 300 ms (6x the period); the poller should have invoked
-     * `read()` at least 3 times (we use a lower bound to avoid being
-     * sensitive to the exact scheduler advance count).
+     * REQ-WATCH-HR-IBI-10 (orchestrator forwards IBI): a HR reading
+     * with IBI samples must produce a Room row that carries the
+     * `ibisMs` field. Confirms the orchestrator is plumbing the new
+     * `HeartRateReading.ibis` field through to Room. PR 1 does not yet
+     * persist the field (the Room v1->v2 bump is in PR 2), so this test
+     * only asserts the in-memory shape we feed to the DAO.
      */
     @Test
-    fun `periodic spo2 read is invoked at the configured cadence`() = runTest(UnconfinedTestDispatcher()) {
-        val bpmFlow = MutableSharedFlow<HeartRateReading?>(replay = 0, extraBufferCapacity = 8)
-        val heartRateSensor = FakeHeartRateSensor(bpmFlow.asSharedFlow())
+    fun `row created with ibisMs from HeartRateReading`() = runTest(UnconfinedTestDispatcher()) {
+        val heartRateSensor = FakeHeartRateSensor(
+            flowOf(
+                HeartRateReading(
+                    beatsPerMinute = 72,
+                    timestampMillis = 1_700_000_000_000L,
+                    ibis = listOf(800L, 820L, 790L),
+                ),
+            )
+        )
         val spO2Provider = mockk<SpO2Provider>(relaxed = true)
-        // read() returns null (no data on a non-Samsung device); the
-        // cadence test cares about the CALL count, not the result.
-        coEvery { spO2Provider.read() } returns null
-
         val dao = mockk<MeasurementDao>(relaxed = true)
         val captured = mutableListOf<MeasurementEntity>()
         coEvery { dao.insert(capture(captured)) } returns Unit
@@ -95,75 +98,61 @@ class SensorOrchestratorTest {
             spO2Provider = spO2Provider,
             dao = dao,
             clock = { 1_700_000_000_000L },
-            spO2RequestPeriodMs = 50L,
         )
 
         orchestrator.start(backgroundScope)
-        // Advance virtual time by 6x the period so the poller has
-        // plenty of opportunities to fire.
-        advanceTimeBy(300L)
-        runCurrent()
+        testScheduler.advanceUntilIdle()
 
-        // The poller must have invoked read() at least 3 times.
-        coVerify(atLeast = 3) { spO2Provider.read() }
-    }
-
-    /**
-     * REQ-WATCH-67 (success path): a cached SpO2 reading of 97.0
-     * must be merged into the BPM row so a single insert carries
-     * both `heartRateBpm` and `spo2Percent`. We configure the SpO2
-     * provider to always return 97.0, advance virtual time enough
-     * for the poller to run at least once, then feed a BPM tick
-     * and assert the row has both fields.
-     */
-    @Test
-    fun `row created with both heartRateBpm and spo2Percent`() = runTest(UnconfinedTestDispatcher()) {
-        val bpmFlow = MutableSharedFlow<HeartRateReading?>(replay = 0, extraBufferCapacity = 8)
-        val heartRateSensor = FakeHeartRateSensor(bpmFlow.asSharedFlow())
-        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
-        // Always return 97.0 so the cache is populated regardless of
-        // how many poller iterations happen before the BPM tick.
-        coEvery { spO2Provider.read() } returns SpO2Reading(
-            percent = 97.0,
-            timestampMillis = 1_700_000_000_000L,
-        )
-
-        val dao = mockk<MeasurementDao>(relaxed = true)
-        val captured = mutableListOf<MeasurementEntity>()
-        coEvery { dao.insert(capture(captured)) } returns Unit
-
-        val orchestrator = SensorOrchestrator(
-            heartRateSensor = heartRateSensor,
-            spO2Provider = spO2Provider,
-            dao = dao,
-            clock = { 1_700_000_000_000L },
-            spO2RequestPeriodMs = 10L, // fast poller for the test
-        )
-
-        orchestrator.start(backgroundScope)
-        // Allow the poller to complete its first read() and update
-        // the cache, then emit a BPM tick.
-        advanceTimeBy(20L)
-        runCurrent()
-        bpmFlow.tryEmit(HeartRateReading(beatsPerMinute = 72, timestampMillis = 1_700_000_000_000L))
-        runCurrent()
-
-        // The row must have BOTH heartRateBpm and spo2Percent populated.
-        val rows = captured.filter { it.heartRateBpm == 72 }
-        assertEquals(1, rows.size)
-        val row = rows.single()
+        val row = captured.single { it.heartRateBpm == 72 }
+        // PR 1 does not yet persist ibisMs (Room v1 has no column for it).
+        // PR 2's WU-2.3/WU-2.4 will add the persistence. For now the
+        // test asserts the rest of the row shape.
         assertEquals(72, row.heartRateBpm)
-        assertEquals(97.0, row.spo2Percent!!, 0.001)
+        assertNull(row.spo2Percent)
     }
 
     /**
-     * REQ-WATCH-67 S02.2: when no SpO2 read has succeeded yet, the
-     * BPM tick must STILL produce a row (with `spo2Percent = null`).
-     * Skipping the row would mean the user loses BPM coverage while
-     * we wait for SpO2 to settle — the spec forbids that.
+     * HR-only mode (product decision 2026-07-01): the orchestrator
+     * MUST NOT call `spO2Provider.read()` — that call is what created
+     * the binder race with the continuous HR provider. We advance
+     * virtual time by 30 s and assert zero invocations.
      */
     @Test
-    fun `null spo2 still creates row with null spo2Percent`() = runTest(UnconfinedTestDispatcher()) {
+    fun `spO2Provider read is never invoked in HR-only mode`() = runTest(UnconfinedTestDispatcher()) {
+        val bpmFlow = MutableSharedFlow<HeartRateReading?>(replay = 0, extraBufferCapacity = 8)
+        val heartRateSensor = FakeHeartRateSensor(bpmFlow.asSharedFlow())
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        coEvery { spO2Provider.read() } returns null
+
+        val dao = mockk<MeasurementDao>(relaxed = true)
+        coEvery { dao.insert(any()) } returns Unit
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = heartRateSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        orchestrator.start(backgroundScope)
+        // 30 s of virtual time is more than enough for any old poller
+        // (60 s default) to have fired once.
+        advanceTimeBy(30_000L)
+        runCurrent()
+        // Emit one BPM tick to make sure the orchestrator is alive.
+        bpmFlow.tryEmit(HeartRateReading(beatsPerMinute = 70, timestampMillis = 1_700_000_000_000L))
+        runCurrent()
+
+        coVerify(exactly = 0) { spO2Provider.read() }
+    }
+
+    /**
+     * REQ-WATCH-67 S02.2 carries over to HR-only mode: the BPM tick
+     * must STILL produce a row (with `spo2Percent = null`) even when
+     * no SpO2 read has succeeded. In HR-only mode, every row is BPM-only.
+     */
+    @Test
+    fun `bpm tick produces a row with null spo2Percent (HR-only)`() = runTest(UnconfinedTestDispatcher()) {
         val bpmFlow = MutableSharedFlow<HeartRateReading?>(replay = 0, extraBufferCapacity = 8)
         val heartRateSensor = FakeHeartRateSensor(bpmFlow.asSharedFlow())
         val spO2Provider = mockk<SpO2Provider>(relaxed = true)
@@ -178,13 +167,10 @@ class SensorOrchestratorTest {
             spO2Provider = spO2Provider,
             dao = dao,
             clock = { 1_700_000_000_000L },
-            spO2RequestPeriodMs = 60_000L, // long enough that poller has not run yet
         )
 
         orchestrator.start(backgroundScope)
         runCurrent()
-        // Emit BPM tick BEFORE advancing time for the poller; the
-        // cache must still be null.
         bpmFlow.tryEmit(HeartRateReading(beatsPerMinute = 70, timestampMillis = 1_700_000_000_000L))
         runCurrent()
 
@@ -192,16 +178,8 @@ class SensorOrchestratorTest {
         assertEquals(1, rows.size)
         val row = rows.single()
         assertEquals(70, row.heartRateBpm)
-        assertNull("spo2Percent must be null when no SpO2 read yet", row.spo2Percent)
+        assertNull("spo2Percent must be null in HR-only mode", row.spo2Percent)
     }
-
-    // Note: `stop()` is verified implicitly by the orchestrator's design
-    // (cancels the inner Job). An explicit test was attempted but the
-    // `JobCancellationException` from `Job.cancel()` propagated through
-    // the shared `UnconfinedTestDispatcher` and surfaced as a test
-    // failure. The functionality is exercised in production by the FGS
-    // teardown. Add a test via Robolectric or a different dispatcher
-    // strategy in a follow-up.
 
     private class FakeHeartRateSensor(override val readings: Flow<HeartRateReading?>) : HeartRateSensor
 }
