@@ -118,30 +118,41 @@ class SamsungSpO2ProviderTest {
      * unchanged.
      */
     /**
-     * REQ-WATCH-63: when `tracker.flush()` returns `false` (the SDK
-     * is busy or not ready), `read()` must return `null` without
-     * awaiting. The next cadence tick retries.
+     * REQ-WATCH-63 (modified) / S-01: when `tracker.flush()` returns
+     * `false` — which AAR v1.4.1 does for `SPO2_ON_DEMAND` because
+     * that tracker type has no flush concept (NOT because the tracker
+     * is busy) — `read()` MUST NOT short-circuit. It must continue
+     * waiting for `onDataReceived` and return the reading when the
+     * callback fires. The 30s `withTimeoutOrNull` (REQ-WATCH-62) is
+     * the termination guarantee.
      *
-     * RED-compression: the impl's `readTimeoutMs` is set to 5_000L
-     * (longer than the test scope's outer `withTimeout(1_000L)`). If
-     * the impl lacks the flush-return check, `read()` will block for
-     * the full 5 s and the test scope will throw a timeout — the
-     * assertion below never sees a `null` return and the test fails.
-     * With the check, the impl resumes null immediately and the
-     * outer `withTimeout` does not fire.
+     * RED-compression: the impl's `readTimeoutMs` is 5_000L. If the
+     * impl retains the `if (!tracker.flush()) { resume(null) }`
+     * short-circuit, `read()` returns `null` and this test fails the
+     * `result.percent == 97.0` assertion (a `null` reading is not
+     * `SpO2Reading(percent = 97.0)`). With the fix, the listener
+     * fires `onDataReceived` and `read()` returns
+     * `SpO2Reading(percent = 97.0)`.
      */
     @Test
-    fun `read returns null when flush returns false`() = runTest {
-        val tracker = mockk<HealthTracker>(relaxed = true)
-        every { tracker.setEventListener(any()) } returns Unit
-        every { tracker.flush() } returns false
-
+    fun `read waits for onDataReceived when flush returns false`() = runTest {
         val connectionListenerSlot = slot<ConnectionListener>()
+        val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+        val dataPoint = mockk<DataPoint>()
+        every { dataPoint.getValue(ValueKey.SpO2Set.SPO2) } returns 97
+
+        val tracker = mockk<HealthTracker>(relaxed = true)
+        every { tracker.setEventListener(capture(trackerListenerSlot)) } returns Unit
+        every { tracker.flush() } returns false // SPO2_ON_DEMAND per AAR v1.4.1
+
         val service = mockk<HealthTrackingService>(relaxed = true)
         every { service.connectService() } answers {
             connectionListenerSlot.captured.onConnectionSuccess()
         }
-        every { service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND) } returns tracker
+        every {
+            service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND)
+        } returns tracker
         every { service.disconnectService() } returns Unit
 
         val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
@@ -153,14 +164,33 @@ class SamsungSpO2ProviderTest {
         val provider = SamsungSpO2Provider(
             context = mockk<Context>(relaxed = true),
             serviceFactory = serviceFactory,
-            readTimeoutMs = 5_000L, // longer than the test's outer 1 s
+            readTimeoutMs = 5_000L, // longer than any test advance
         )
 
-        val result = withTimeout(1_000L) { provider.read() }
-        assertNull("read() must return null when flush() returns false", result)
-        // REQ-WATCH-73: disconnectService() must fire even on the
-        // flush==false short-circuit so the binder is released per read.
-        verify(exactly = 1) { service.disconnectService() }
+        // Launch read() in a child coroutine so we can interleave the
+        // listener callback between suspension and resume. The
+        // production code's withTimeoutOrNull(5_000L) is the only
+        // "SDK never fires" termination guarantee (REQ-WATCH-62).
+        val deferred = async { provider.read() }
+        // runCurrent() (NOT advanceUntilIdle()) runs the coroutine to
+        // its suspension point WITHOUT advancing virtual time past the
+        // 5s timeout. advanceUntilIdle() would jump to the next
+        // scheduled task — the timeout itself — and fire it before
+        // onDataReceived gets a chance to resume the coroutine.
+        testScheduler.runCurrent()
+        // Fire the SDK's onDataReceived callback as it would on real
+        // hardware once the SPO2 measurement completes.
+        trackerListenerSlot.captured.onDataReceived(listOf(dataPoint))
+        // advanceUntilIdle() now runs the scheduled continuation (the
+        // onDataReceived resume) and cancels the pending timeout.
+        testScheduler.advanceUntilIdle()
+
+        val result = deferred.await()
+        assertNotNull(
+            "read() must return a SpO2Reading when onDataReceived fires after flush() == false",
+            result,
+        )
+        assertEquals(97.0, result!!.percent, 0.001)
     }
 
     /**
