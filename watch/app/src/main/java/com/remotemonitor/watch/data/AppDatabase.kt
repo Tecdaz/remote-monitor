@@ -8,7 +8,10 @@ import androidx.room.RoomDatabase
  * (REQ-WATCH-06, T-WATCH-18).
  *
  * - Single entity: [MeasurementEntity] (table `measurements`).
- * - Version 1 — bump on schema change and provide a Migration.
+ * - Version 2 — bumped from v1 to add the `ibis_ms` column
+ *   (REQ-WATCH-HR-IBI-10). Destructive migration is in effect
+ *   (see [com.remotemonitor.watch.WatchApplication.database]); a
+ *   real `Migration(1, 2)` is deferred (REQ-WATCH-HR-IBI-15 out-of-scope).
  * - Schema is exported to `app/schemas/` by the Room compiler
  *   (KSP arg `room.schemaLocation` in `app/build.gradle.kts`).
  *
@@ -22,7 +25,7 @@ import androidx.room.RoomDatabase
  */
 @Database(
     entities = [MeasurementEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
