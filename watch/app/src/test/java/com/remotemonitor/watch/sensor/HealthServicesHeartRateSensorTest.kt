@@ -1,12 +1,16 @@
 package com.remotemonitor.watch.sensor
 
 import android.content.Context
+import android.os.Bundle
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.HealthServicesClient
 import androidx.health.services.client.PassiveListenerCallback
 import androidx.health.services.client.PassiveMonitoringClient
+import androidx.health.services.client.data.DataPointAccuracy
+import androidx.health.services.client.data.DataPointContainer
 import androidx.health.services.client.data.DataType
 import androidx.health.services.client.data.PassiveListenerConfig
+import androidx.health.services.client.data.SampleDataPoint
 import com.google.common.util.concurrent.ListenableFuture
 import io.mockk.every
 import io.mockk.mockk
@@ -21,6 +25,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
+import java.time.Duration
 import java.util.concurrent.Executor
 
 /**
@@ -114,6 +119,62 @@ class HealthServicesHeartRateSensorTest {
                 passive.capturedConfig!!.dataTypes,
             )
         }
+
+    /**
+     * REQ-WATCH-01 S02: when the platform fires
+     * `onNewDataPointsReceived` with a [DataPointContainer] that
+     * contains a [SampleDataPoint] of `HEART_RATE_BPM`, the sensor
+     * MUST emit a [HeartRateReading] with `beatsPerMinute` rounded
+     * to the nearest Int (`roundToInt`, NOT `toInt` — 72.7 → 73).
+     *
+     * The test also asserts the injected `clock` is used for
+     * `timestampMillis` (not `System.currentTimeMillis`), which is
+     * what gives the design its deterministic-timestamp guarantee.
+     */
+    @Test
+    fun `emits HeartRateReading on DataPoint with HEART_RATE_BPM`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val passive = FakePassiveMonitoringClient()
+            val fakeClient = FakeHealthServicesClient(passive)
+            mockkStatic(HealthServices::class)
+            every { HealthServices.getClient(any<Context>()) } returns fakeClient
+
+            val ctx = mockk<Context>(relaxed = true)
+            val sensor = HealthServicesHeartRateSensor(
+                context = ctx,
+                callbackExecutor = DirectExecutor(),
+                clock = { 1_700_000_000_000L },
+            )
+            val emissions = mutableListOf<HeartRateReading?>()
+            backgroundScope.launch {
+                sensor.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            // Drive the callback with a 72.7 bpm sample. roundToInt
+            // must yield 73; toInt would yield 72.
+            passive.simulateNewData(72.7)
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                "exactly one emission expected for a single DataPoint",
+                1,
+                emissions.size,
+            )
+            val reading = emissions.single()
+            assertNotNull("emission must be a HeartRateReading, not null", reading)
+            assertEquals(
+                "roundToInt(72.7) must be 73, not 72 (toInt truncation)",
+                73,
+                reading!!.beatsPerMinute,
+            )
+            assertEquals(
+                "timestampMillis must come from the injected clock, " +
+                    "not System.currentTimeMillis()",
+                1_700_000_000_000L,
+                reading.timestampMillis,
+            )
+        }
 }
 
 /** Test helper: run commands inline on the calling thread. */
@@ -137,6 +198,25 @@ private class FakePassiveMonitoringClient : PassiveMonitoringClient {
     // Simulate helpers are added in T-BPM-03..05 as the test suite
     // expands. For T-BPM-01 the registration-only assertion does not
     // need any drive helpers.
+
+    /**
+     * Construct a [DataPointContainer] with a single
+     * [SampleDataPoint] of `HEART_RATE_BPM` whose value is [bpm],
+     * then deliver it to the captured callback via
+     * `onNewDataPointsReceived`. Used by T-BPM-03 to drive the
+     * happy-path emission.
+     */
+    fun simulateNewData(bpm: Double) {
+        val sample = SampleDataPoint(
+            DataType.HEART_RATE_BPM,
+            bpm,
+            Duration.ZERO,
+            mockk<Bundle>(relaxed = true),
+            mockk<DataPointAccuracy>(relaxed = true),
+        )
+        val container = DataPointContainer(listOf(sample))
+        capturedCallback!!.onNewDataPointsReceived(container)
+    }
 
     override fun setPassiveListenerServiceAsync(
         serviceClass: Class<out androidx.health.services.client.PassiveListenerService>,
