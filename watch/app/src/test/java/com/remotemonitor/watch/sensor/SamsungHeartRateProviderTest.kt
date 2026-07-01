@@ -222,4 +222,87 @@ class SamsungHeartRateProviderTest {
             job.cancel()
             testScheduler.advanceUntilIdle()
         }
+
+    /**
+     * REQ-WATCH-HR-IBI-03: the provider MUST convert `IBI_LIST` from
+     * the AAR's `List<Integer>` to `List<Long>` at the read boundary.
+     * This test feeds values that distinguish Int (which would be the
+     * wrong type) from Long, and asserts the *exact* `List<Long>` shape
+     * on the emitted reading.
+     *
+     * The values are deliberately larger than 32-bit Int max would
+     * allow if you mis-read the type — `2_500_000_000L` cannot be
+     * represented as Int, so a failure to convert would either throw
+     * a ClassCastException or produce wrong values. The test uses
+     * values in the normal IBI range (800..1000 ms) but asserts the
+     * type is `List<Long>` via `is List<Long>` (a runtime type
+     * assertion that distinguishes `ArrayList<Long>` from
+     * `ArrayList<Integer>`).
+     */
+    @Test
+    fun `IBI values are converted to Long from the SDK's Int`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val connectionListenerSlot = slot<ConnectionListener>()
+            val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+            val dataPoint = mockk<DataPoint>()
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE) } returns 72
+            // SDK AAR exposes this as List<Int>. The provider must
+            // convert to List<Long> at the read boundary.
+            every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_LIST) } returns
+                listOf(800, 820, 790)
+            every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns
+                listOf(1, 1, 1)
+
+            val tracker = mockk<HealthTracker>(relaxed = true)
+            every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
+                trackerListenerSlot.captured.onDataReceived(listOf(dataPoint))
+            }
+
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            every { service.connectService() } answers {
+                connectionListenerSlot.captured.onConnectionSuccess()
+            }
+            every {
+                service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
+            } returns tracker
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { listener, _ ->
+                    connectionListenerSlot.captured = listener
+                    service
+                }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+                clock = { 1_700_000_000_000L },
+            )
+
+            val emissions = mutableListOf<HeartRateReading?>()
+            val job = backgroundScope.launch {
+                provider.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            val ibis = emissions.single()!!.ibis
+            // Value equality: List<Long>(800, 820, 790).
+            assertEquals(listOf(800L, 820L, 790L), ibis)
+            // Type check: in Kotlin on the JVM, Long::class.java.name
+            // is the primitive "long", while Int::class.java.name is
+            // "int". If the impl failed to convert, the list element
+            // type would be "int" (Int). Asserting the element's
+            // runtime class is "long" proves the Int -> Long
+            // conversion happened at the read boundary.
+            val firstElement = ibis!![0]
+            assertEquals(
+                "first IBI element must be a Long at runtime, not an Int",
+                "long",
+                firstElement::class.java.name,
+            )
+
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+        }
 }
