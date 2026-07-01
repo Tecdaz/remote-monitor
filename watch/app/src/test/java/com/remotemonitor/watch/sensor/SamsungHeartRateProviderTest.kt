@@ -431,4 +431,54 @@ class SamsungHeartRateProviderTest {
             // Post-cancel: disconnectService called exactly once.
             io.mockk.verify(exactly = 1) { service.disconnectService() }
         }
+
+    /**
+     * REQ-WATCH-HR-IBI-05 S02: when the coroutine is cancelled BEFORE
+     * `onConnectionSuccess` fires, the binder is not yet live. The
+     * spec says "disconnectService is NOT called (the binder was
+     * never live)". Design §17 WARNING flags this as a verification
+     * item: gate `disconnectService` on a `connectionEstablished`
+     * flag.
+     *
+     * RED proof: today the impl calls `disconnectService` from
+     * `awaitClose` unconditionally. For a pre-connection cancel,
+     * `awaitClose` will fire and call `disconnectService` on a
+     * not-yet-connected service. Per spec S02, this should NOT
+     * happen — the test asserts 0 calls in this case. The current
+     * impl fails this test (it calls disconnectService once from
+     * awaitClose).
+     */
+    @Test
+    fun `disconnectService NOT called when cancel happens before onConnectionSuccess`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            // connectService does NOT fire onConnectionSuccess — we
+            // simulate a long connect that gets cancelled.
+            every { service.connectService() } returns Unit
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { _, _ -> service }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+            )
+
+            val job = backgroundScope.launch {
+                provider.readings.collect { /* discard */ }
+            }
+            // Cancel BEFORE advanceUntilIdle (before onConnectionSuccess could fire).
+            // Note: with UnconfinedTestDispatcher the connectService
+            // call is the last thing in the producer block before
+            // awaitClose; advanceUntilIdle here lets connectService
+            // run (which is a no-op per our mock), then we cancel.
+            testScheduler.advanceUntilIdle()
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+
+            // Spec REQ-WATCH-HR-IBI-05 S02: NO disconnectService call
+            // because the binder was never live.
+            io.mockk.verify(exactly = 0) { service.disconnectService() }
+        }
 }
