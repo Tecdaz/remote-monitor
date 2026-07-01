@@ -92,6 +92,12 @@ class SamsungSpO2ProviderTest {
         // The connection listener was indeed handed to the factory, proving
         // the bridge wires it to the SDK.
         assertNotNull("ConnectionListener must be captured by the factory", connectionListenerSlot.isCaptured)
+        // REQ-WATCH-71: disconnectService() must fire on the happy path so
+        // the binder is released per read. The verify is placed BEFORE
+        // the KDoc-referencing assertEquals(null, unused) block so the
+        // last interaction with the mock is the assertion, not a dummy
+        // null comparison.
+        verify(exactly = 1) { service.disconnectService() }
         // HealthTrackerException is referenced to make sure the AAR types
         // remain on the test classpath. Touching it here catches a
         // missing-testImplementation regression early.
@@ -152,6 +158,9 @@ class SamsungSpO2ProviderTest {
 
         val result = withTimeout(1_000L) { provider.read() }
         assertNull("read() must return null when flush() returns false", result)
+        // REQ-WATCH-73: disconnectService() must fire even on the
+        // flush==false short-circuit so the binder is released per read.
+        verify(exactly = 1) { service.disconnectService() }
     }
 
     /**
@@ -191,6 +200,9 @@ class SamsungSpO2ProviderTest {
 
         val result = withTimeout(1_000L) { provider.read() }
         assertNull("read() must return null on connection failure, not throw", result)
+        // REQ-WATCH-74: disconnectService() must fire on the
+        // onConnectionFailed path so the binder is released per read.
+        verify(exactly = 1) { service.disconnectService() }
     }
 
     /**
@@ -318,6 +330,61 @@ class SamsungSpO2ProviderTest {
 
         val result = withTimeout(1_000L) { provider.read() }
         assertNull("read() must return null when getHealthTracker throws", result)
+        verify(exactly = 1) { service.disconnectService() }
+    }
+
+    /**
+     * REQ-WATCH-72: when the tracker fires `onError(TrackerError)`
+     * (e.g. the SPO2 sensor reported a hardware fault), `read()` must
+     * return `null` AND `service.disconnectService()` must be invoked
+     * exactly once. Without the disconnect call, the binder connection
+     * to `com.samsung.android.service.health` stays open — that is the
+     * binder leak this change is fixing.
+     *
+     * Pattern: the `tracker.flush()` answer block fires the captured
+     * `TrackerEventListener.onError` synchronously (mirroring the
+     * happy-path test, which fires `onDataReceived` from inside
+     * `flush()`). `flush()` itself returns `true` so the impl's
+     * `if (!tracker.flush())` short-circuit does NOT fire — the
+     * resume must come through the listener, not the flush branch.
+     */
+    @Test
+    fun `read returns null on tracker error`() = runTest {
+        val connectionListenerSlot = slot<ConnectionListener>()
+        val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+        val tracker = mockk<HealthTracker>(relaxed = true)
+        every { tracker.setEventListener(capture(trackerListenerSlot)) } returns Unit
+        every { tracker.flush() } answers {
+            trackerListenerSlot.captured.onError(
+                mockk<HealthTracker.TrackerError>(relaxed = true)
+            )
+            true
+        }
+
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        every { service.connectService() } answers {
+            connectionListenerSlot.captured.onConnectionSuccess()
+        }
+        every {
+            service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND)
+        } returns tracker
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { listener, _ ->
+                connectionListenerSlot.captured = listener
+                service
+            }
+
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+            readTimeoutMs = 5_000L, // longer than the test's outer 1 s
+        )
+
+        val result = withTimeout(1_000L) { provider.read() }
+        assertNull("read() must return null when the tracker fires onError", result)
         verify(exactly = 1) { service.disconnectService() }
     }
 }
