@@ -13,6 +13,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -32,6 +33,7 @@ import org.junit.Test
  * stays deterministic without spinning real coroutines or installing the
  * proprietary Samsung service.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class SamsungSpO2ProviderTest {
 
     @After
@@ -53,6 +55,13 @@ class SamsungSpO2ProviderTest {
 
         val dataPoint = mockk<DataPoint>()
         every { dataPoint.getValue(ValueKey.SpO2Set.SPO2) } returns 95
+        // REQ-WATCH-79: onDataReceived gates on STATUS==2 before reading
+        // SPO2. The current SDK mock returns STATUS=2 ("measurement
+        // complete") for the happy-path so the SPO2 read is the
+        // terminal value. The new STATUS-gated impl requires this mock
+        // to be present (the DataPoint mock is strict, so an unmocked
+        // getValue(STATUS) would throw inside the impl).
+        every { dataPoint.getValue(ValueKey.SpO2Set.STATUS) } returns 2
 
         val tracker = mockk<HealthTracker>(relaxed = true)
         // setEventListener is the real-world trigger for the SDK to
@@ -153,6 +162,11 @@ class SamsungSpO2ProviderTest {
 
         val dataPoint = mockk<DataPoint>()
         every { dataPoint.getValue(ValueKey.SpO2Set.SPO2) } returns 97
+        // REQ-WATCH-79: status-gated impl reads STATUS before SPO2.
+        // The happy-path test simulates the SDK's terminal "complete"
+        // callback (STATUS=2). Required because the DataPoint mock is
+        // strict: an unmocked getValue(STATUS) would throw.
+        every { dataPoint.getValue(ValueKey.SpO2Set.STATUS) } returns 2
 
         val tracker = mockk<HealthTracker>(relaxed = true)
         every { tracker.setEventListener(capture(trackerListenerSlot)) } returns Unit
@@ -439,5 +453,208 @@ class SamsungSpO2ProviderTest {
         // SPO2_ON_DEMAND (see WU-5 / engram
         // `discovery/samsung-spo2-flush-unbinds-connection`).
         verify(exactly = 0) { tracker.flush() }
+    }
+
+    /**
+     * REQ-WATCH-79 / S-01: the SDK fires multiple DataPoints per
+     * on-demand cycle. The first has `STATUS=0` (calculating, SPO2=0.0)
+     * and a later one has `STATUS=2` (complete, SPO2=actual). The impl
+     * MUST ignore STATUS!=2 callbacks and resume only on STATUS==2.
+     *
+     * RED: the current impl reads SPO2 only and resumes on the FIRST
+     * DataPoint — so it would resume with percent=0.0 from the
+     * STATUS=0 callback, and the STATUS=2 callback would no-op (the
+     * continuation is already used). The assertion `percent == 97.0`
+     * therefore fails on the current code. After WU-2's STATUS gate,
+     * the first callback is ignored and the second resumes with
+     * 97.0.
+     */
+    @Test
+    fun `read returns SpO2Reading when STATUS transitions from 0 to 2`() = runTest {
+        val connectionListenerSlot = slot<ConnectionListener>()
+        val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+        // First DataPoint: STATUS=0 (calculating), SPO2=0.0.
+        val calculatingDp = mockk<DataPoint>()
+        every { calculatingDp.getValue(ValueKey.SpO2Set.STATUS) } returns 0
+        every { calculatingDp.getValue(ValueKey.SpO2Set.SPO2) } returns 0
+        // Second DataPoint: STATUS=2 (complete), SPO2=97.
+        val completeDp = mockk<DataPoint>()
+        every { completeDp.getValue(ValueKey.SpO2Set.STATUS) } returns 2
+        every { completeDp.getValue(ValueKey.SpO2Set.SPO2) } returns 97
+
+        val tracker = mockk<HealthTracker>(relaxed = true)
+        // setEventListener is non-firing; we fire both DataPoints
+        // manually after the coroutine has reached its suspension
+        // point. This mirrors how the real SDK delivers
+        // multi-DataPoint cycles (calculating → complete).
+        every { tracker.setEventListener(capture(trackerListenerSlot)) } returns Unit
+
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        every { service.connectService() } answers {
+            connectionListenerSlot.captured.onConnectionSuccess()
+        }
+        every { service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND) } returns tracker
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { listener, _ ->
+                connectionListenerSlot.captured = listener
+                service
+            }
+
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+            readTimeoutMs = 5_000L,
+        )
+
+        val deferred = async { provider.read() }
+        // Reach the suspension point without firing the timeout.
+        testScheduler.runCurrent()
+        // First SDK callback: STATUS=0, SPO2=0.0. The gate MUST ignore
+        // this DataPoint and leave the coroutine suspended.
+        trackerListenerSlot.captured.onDataReceived(listOf(calculatingDp))
+        testScheduler.runCurrent()
+        // Second SDK callback: STATUS=2, SPO2=97. The gate MUST resume
+        // the coroutine with the SPO2 reading.
+        trackerListenerSlot.captured.onDataReceived(listOf(completeDp))
+        testScheduler.advanceUntilIdle()
+
+        val result = deferred.await()
+        assertNotNull(
+            "read() must resume with a SpO2Reading when STATUS transitions 0→2",
+            result,
+        )
+        assertEquals(97.0, result!!.percent, 0.001)
+        verify(exactly = 1) { service.disconnectService() }
+    }
+
+    /**
+     * REQ-WATCH-79 / S-02: when the SDK only fires STATUS=0 ("still
+     * calculating") callbacks within the 30 s budget, the impl MUST
+     * return `null` (the 30 s `withTimeoutOrNull` is the termination
+     * guarantee). No `TimeoutCancellationException` may leak.
+     *
+     * RED: the current impl reads SPO2 only and resumes on the first
+     * DataPoint with the mocked SPO2 value (0.0). The assertion
+     * `assertNull` therefore fails on the current code. After WU-2's
+     * STATUS gate, all STATUS=0 callbacks are ignored and the 30 s
+     * (compressed to 2 s) timeout returns null.
+     */
+    @Test
+    fun `read returns null on 30s timeout when only STATUS=0 callbacks fire`() = runTest {
+        val connectionListenerSlot = slot<ConnectionListener>()
+        val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+        val calculatingDp = mockk<DataPoint>()
+        every { calculatingDp.getValue(ValueKey.SpO2Set.STATUS) } returns 0
+        every { calculatingDp.getValue(ValueKey.SpO2Set.SPO2) } returns 0
+
+        val tracker = mockk<HealthTracker>(relaxed = true)
+        every { tracker.setEventListener(capture(trackerListenerSlot)) } returns Unit
+
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        every { service.connectService() } answers {
+            connectionListenerSlot.captured.onConnectionSuccess()
+        }
+        every { service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND) } returns tracker
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { listener, _ ->
+                connectionListenerSlot.captured = listener
+                service
+            }
+
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+            // Compressed 30 s → 2 s for the test (mirrors the
+            // `read returns null on 30s timeout` test at L313).
+            readTimeoutMs = 2_000L,
+        )
+
+        val deferred = async { provider.read() }
+        testScheduler.runCurrent()
+        // Fire only STATUS=0 callbacks. The gate MUST ignore each one.
+        // Multiple callbacks are fired to exercise the "SDK keeps
+        // delivering in the same cycle" path.
+        repeat(3) {
+            trackerListenerSlot.captured.onDataReceived(listOf(calculatingDp))
+            testScheduler.runCurrent()
+        }
+        // Advance past the 2 s timeout. withTimeoutOrNull must cancel
+        // the coroutine and resolve to null.
+        testScheduler.advanceTimeBy(2_500L)
+        testScheduler.runCurrent()
+
+        val result = deferred.await()
+        assertNull(
+            "read() must return null when SDK only fires STATUS=0 callbacks within timeout",
+            result,
+        )
+    }
+
+    /**
+     * REQ-WATCH-79 / S-03: when the SDK fires a STATUS=-4 ("device
+     * moved") callback, the impl MUST NOT resume with a SPO2 value.
+     * The connection stays open so the SDK can deliver a subsequent
+     * callback; if no STATUS=2 callback arrives within the 30 s
+     * budget, `read()` returns `null` via the timeout.
+     *
+     * RED: the current impl reads SPO2 only and ignores STATUS, so it
+     * resumes with the mocked SPO2 value. The `assertNull` therefore
+     * fails on the current code. After WU-2's STATUS gate, the
+     * STATUS=-4 callback is ignored and the timeout returns null.
+     */
+    @Test
+    fun `read returns null on 30s timeout when only STATUS=-4 callbacks fire`() = runTest {
+        val connectionListenerSlot = slot<ConnectionListener>()
+        val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+        val deviceMovedDp = mockk<DataPoint>()
+        every { deviceMovedDp.getValue(ValueKey.SpO2Set.STATUS) } returns -4
+        every { deviceMovedDp.getValue(ValueKey.SpO2Set.SPO2) } returns 0
+
+        val tracker = mockk<HealthTracker>(relaxed = true)
+        every { tracker.setEventListener(capture(trackerListenerSlot)) } returns Unit
+
+        val service = mockk<HealthTrackingService>(relaxed = true)
+        every { service.connectService() } answers {
+            connectionListenerSlot.captured.onConnectionSuccess()
+        }
+        every { service.getHealthTracker(HealthTrackerType.SPO2_ON_DEMAND) } returns tracker
+        every { service.disconnectService() } returns Unit
+
+        val serviceFactory: (ConnectionListener, android.content.Context) -> HealthTrackingService =
+            { listener, _ ->
+                connectionListenerSlot.captured = listener
+                service
+            }
+
+        val provider = SamsungSpO2Provider(
+            context = mockk<Context>(relaxed = true),
+            serviceFactory = serviceFactory,
+            readTimeoutMs = 2_000L,
+        )
+
+        val deferred = async { provider.read() }
+        testScheduler.runCurrent()
+        // Fire only STATUS=-4 callbacks. The gate MUST ignore them
+        // and leave the coroutine suspended.
+        repeat(3) {
+            trackerListenerSlot.captured.onDataReceived(listOf(deviceMovedDp))
+            testScheduler.runCurrent()
+        }
+        // Advance past the 2 s timeout.
+        testScheduler.advanceTimeBy(2_500L)
+        testScheduler.runCurrent()
+
+        val result = deferred.await()
+        assertNull(
+            "read() must return null when SDK only fires STATUS=-4 callbacks within timeout",
+            result,
+        )
     }
 }
