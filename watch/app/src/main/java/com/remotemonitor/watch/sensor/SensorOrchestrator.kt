@@ -64,6 +64,7 @@ class SensorOrchestrator(
                             timestamp = clock(),
                             heartRateBpm = bpmReading?.beatsPerMinute,
                             spo2Percent = null,
+                            ibisMs = bpmReading?.ibis,
                         )
                         dao.insert(row)
                     }
