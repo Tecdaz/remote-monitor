@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MeasurementBatch(BaseModel):
@@ -45,6 +45,28 @@ class MeasurementBatch(BaseModel):
         le=100,
         description="SpO2 percentage (0-100). `null` if the sensor failed.",
     )
+    # REQ-WATCH-HR-IBI-11: IBI list (inter-beat intervals in ms).
+    # `None` for old clients that don't send the field; per-item
+    # clamp [1, 5000] rejects negatives and physiologically absurd
+    # values. `Measurement(MeasurementBatch)` inherits this field
+    # automatically — no class change needed.
+    ibis_ms: list[int] | None = Field(
+        default=None,
+        description=(
+            "Inter-beat intervals in milliseconds. `None` when the "
+            "device does not provide IBI samples."
+        ),
+    )
+
+    @field_validator("ibis_ms")
+    @classmethod
+    def _clamp_ibis(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        for x in v:
+            if not (1 <= x <= 5000):
+                raise ValueError(f"ibis_ms value {x} out of [1, 5000]")
+        return v
 
 
 class Measurement(MeasurementBatch):
