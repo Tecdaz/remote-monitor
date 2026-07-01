@@ -352,21 +352,17 @@ class SamsungHeartRateProviderTest {
                 serviceFactory = serviceFactory,
             )
 
-            val emissions = mutableListOf<HeartRateReading?>()
+            val channel = kotlinx.coroutines.channels.Channel<HeartRateReading?>(kotlinx.coroutines.channels.Channel.BUFFERED)
             val job = backgroundScope.launch {
-                provider.readings.collect { emissions += it }
+                provider.readings.collect { channel.send(it) }
             }
             testScheduler.advanceUntilIdle()
 
             // Assert: exactly one null emission (the close path).
-            assertEquals(
-                "getHealthTracker throw must yield exactly one null emission",
-                1,
-                emissions.size,
-            )
+            val first = channel.receive()
             assertNull(
-                "the emission must be null (no reading possible)",
-                emissions.single(),
+                "the first emission must be null (no reading possible)",
+                first,
             )
             // Assert: disconnectService was called exactly once.
             // The binder IS live when onConnectionSuccess fired, so
@@ -375,5 +371,64 @@ class SamsungHeartRateProviderTest {
 
             job.cancel()
             testScheduler.advanceUntilIdle()
+            channel.close()
+        }
+
+    /**
+     * REQ-WATCH-HR-IBI-05 S01: when the collector cancels the flow
+     * (`awaitClose` path), the provider MUST call
+     * `service.disconnectService()` exactly once so the binder
+     * connection to `com.samsung.android.service.health` is released.
+     *
+     * RED proof: this test cancels BEFORE any callback fires. The
+     * `awaitClose { runCatching { service.disconnectService() } }`
+     * block must run and call disconnect. Without it, the verify
+     * fails.
+     */
+    @Test
+    fun `disconnectService called exactly once on awaitClose`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val connectionListenerSlot = slot<ConnectionListener>()
+
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            // connectService fires onConnectionSuccess but we set up
+            // the tracker to NEVER call onDataReceived, so the
+            // coroutine suspends in the producer. We then cancel the
+            // collection and assert disconnectService fires from
+            // awaitClose.
+            every { service.connectService() } answers {
+                connectionListenerSlot.captured.onConnectionSuccess()
+            }
+            val tracker = mockk<HealthTracker>(relaxed = true)
+            every { tracker.setEventListener(any()) } returns Unit
+            every {
+                service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
+            } returns tracker
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { listener, _ ->
+                    connectionListenerSlot.captured = listener
+                    service
+                }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+            )
+
+            val job = backgroundScope.launch {
+                provider.readings.collect { /* discard */ }
+            }
+            testScheduler.advanceUntilIdle()
+            // Pre-cancel: disconnectService MUST NOT have been called yet.
+            io.mockk.verify(exactly = 0) { service.disconnectService() }
+
+            // Cancel the collector -> awaitClose fires.
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+
+            // Post-cancel: disconnectService called exactly once.
+            io.mockk.verify(exactly = 1) { service.disconnectService() }
         }
 }
