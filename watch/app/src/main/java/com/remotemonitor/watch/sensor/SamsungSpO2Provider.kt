@@ -99,6 +99,7 @@ class SamsungSpO2Provider(
                             // SDK threw on getHealthTracker (e.g. unknown tracker
                             // type on a non-Samsung device). Treat as no-data.
                             if (cont.isActive) cont.resume(null)
+                            service.disconnectService()
                             return
                         }
                         tracker.setEventListener(object : HealthTracker.TrackerEventListener {
@@ -112,6 +113,7 @@ class SamsungSpO2Provider(
                                         timestampMillis = System.currentTimeMillis(),
                                     )
                                 )
+                                service.disconnectService()
                             }
 
                             override fun onFlushCompleted() {
@@ -120,13 +122,17 @@ class SamsungSpO2Provider(
 
                             override fun onError(error: HealthTracker.TrackerError) {
                                 if (cont.isActive) cont.resume(null)
+                                service.disconnectService()
                             }
                         })
                         // C3 short-circuit: a `false` return from flush()
                         // means the tracker is busy / not ready. Resume null
                         // immediately so the orchestrator's next cadence tick
                         // can retry, rather than waiting for the 30 s timeout.
-                        if (!tracker.flush() && cont.isActive) cont.resume(null)
+                        if (!tracker.flush()) {
+                            if (cont.isActive) cont.resume(null)
+                            service.disconnectService()
+                        }
                     }
 
                     override fun onConnectionFailed(error: HealthTrackerException) {
@@ -135,6 +141,7 @@ class SamsungSpO2Provider(
                         // (REQ-WATCH-67 S02.2) instead of hanging on a stale
                         // binder or throwing to the call site.
                         if (cont.isActive) cont.resume(null)
+                        service.disconnectService()
                     }
 
                     override fun onConnectionEnded() {
