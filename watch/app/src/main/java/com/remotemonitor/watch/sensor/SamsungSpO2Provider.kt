@@ -21,8 +21,11 @@ import kotlin.coroutines.resume
  * [HealthTrackingService] (no persistent connection state), waits for
  * `onConnectionSuccess`, requests a `SPO2_ON_DEMAND` tracker, sets an
  * event listener, calls `flush()`, and resumes the coroutine on the
- * first `onDataReceived`. The `disconnectService()` call is the
- * cancellation hook's responsibility (added in C5).
+ * first `onDataReceived`. The `disconnectService()` call runs on every
+ * terminal path: the 5 normal-resume paths explicitly (REQ-WATCH-70..74),
+ * plus the cancellation hook as a defensive backup. This ensures no
+ * binder connection to `com.samsung.android.service.health` is leaked
+ * per call. Total disconnects per `read()` invocation is at most 1.
  *
  * **Concurrency**: this class is NOT safe for concurrent [read] calls
  * on the same instance — the SDK's `HealthTrackingService` is single-shot
