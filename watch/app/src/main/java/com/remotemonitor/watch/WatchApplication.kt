@@ -11,8 +11,8 @@ import com.remotemonitor.watch.identity.DeviceInfoProviderImpl
 import com.remotemonitor.watch.identity.IdentityRepository
 import com.remotemonitor.watch.identity.IdentityRepositoryImpl
 import com.remotemonitor.watch.sensor.HeartRateSensor
-import com.remotemonitor.watch.sensor.HealthServicesHeartRateSensor
-import com.remotemonitor.watch.sensor.NullSpO2Provider
+import com.remotemonitor.watch.sensor.SamsungHeartRateProvider
+import com.remotemonitor.watch.sensor.SamsungSpO2Provider
 import com.remotemonitor.watch.sensor.SensorOrchestrator
 import com.remotemonitor.watch.sensor.SpO2Provider
 import com.remotemonitor.watch.sync.BatchUploadWorker
@@ -44,6 +44,15 @@ import kotlinx.coroutines.SupervisorJob
  * as factory lambdas because the ViewModels are not Android ViewModels
  * (they don't need the `viewModelScope` machinery for a PoC — the
  * shared [applicationScope] is enough).
+ *
+ * **Lifecycle (REQ-WATCH-66, fix-watch-orchestrator-start)**: the
+ * [sensorOrchestrator] is started from [onCreate] against the
+ * [applicationScope]. This is the CALLING SITE that was missing in
+ * `feat-watch-samsung-spo2` (see `sdd/feat-watch-samsung-spo2/verify-report`
+ * #340 §"E2E status" and the 6th deviation in apply-progress #335). The
+ * orchestrator is constructed lazily but [SensorOrchestrator.start] is
+ * idempotent, so a second call (e.g. after a process restart) is a
+ * no-op.
  */
 class WatchApplication : Application() {
 
@@ -59,8 +68,23 @@ class WatchApplication : Application() {
 
     // --- Sensors ---------------------------------------------------------
 
-    val spO2Provider: SpO2Provider by lazy { NullSpO2Provider() }
-    val heartRateSensor: HeartRateSensor by lazy { HealthServicesHeartRateSensor(this) }
+    // REQ-WATCH-12 / REQ-WATCH-68: wire the real Samsung SDK-backed
+    // SpO2 provider. `NullSpO2Provider` is RETAINED in the source set
+    // (per the SpO2Provider KDoc) as the non-Samsung fallback, but no
+    // longer instantiated here. On a non-Samsung device, the
+    // SamsungSpO2Provider.read() will return null cleanly (via
+    // onConnectionFailed / timeout) and the orchestrator will insert
+    // rows with spo2Percent = null.
+    val spO2Provider: SpO2Provider by lazy { SamsungSpO2Provider(this) }
+    // REQ-WATCH-HR-IBI-01..09 (feat-watch-samsung-hr-ibi): wire the
+    // Samsung SDK-backed HR provider. The previous
+    // HealthServicesHeartRateSensor (Jetpack `androidx.health.services.client`)
+    // is REMOVED from the wiring because the Samsung SDK is the only
+    // tracker in our fleet (SM-R870) AND the only path that exposes
+    // IBI_LIST for HRV computation. The `heart-services-client`
+    // Gradle dependency is left in place for now (REQ-WATCH-HR-IBI-15
+    // out-of-scope marker — removal is a follow-up cycle).
+    val heartRateSensor: HeartRateSensor by lazy { SamsungHeartRateProvider(this) }
 
     val sensorOrchestrator: SensorOrchestrator by lazy {
         SensorOrchestrator(
@@ -157,6 +181,12 @@ class WatchApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // REQ-WATCH-66 (fix-watch-orchestrator-start): kick off the
+        // sensor collection loop. Without this call, the orchestrator
+        // is constructed (lazy) but never activated, and
+        // clinical.measurements stays empty. Idempotent: safe to call
+        // multiple times across process restarts.
+        sensorOrchestrator.start(applicationScope)
     }
 
     override fun onTerminate() {

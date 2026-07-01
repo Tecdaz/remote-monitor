@@ -3,6 +3,13 @@
 
     <!-- Health Services: heart rate (BPM) collection. SpO2 uses Samsung SDK. -->
     <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <!-- Android 16 granular health permissions (Health Connect). The
+         Samsung SDK requires these granular permissions on Android 16+;
+         BODY_SENSORS alone triggers PERMISSION_ERROR on HEART_RATE_CONTINUOUS.
+         Runtime grant is required — the system shows a dialog at first
+         sensor request (codelab step 10.1). -->
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
 
     <!-- Network: HTTPS batch uploads to backend. -->
     <uses-permission android:name="android.permission.INTERNET" />

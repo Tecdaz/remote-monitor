@@ -109,15 +109,22 @@ dependencies {
     implementation(libs.core.splashscreen)
 
     // Samsung Health Sensor SDK AAR (REQ-WATCH-12).
-    // The real AAR lives at watch/libs/samsung-health-tracking.aar; it must be
-    // downloaded manually from https://developer.samsung.com/health/sensor.
-    // The line below is commented out because the placeholder in the repo
-    // is not a valid AAR — see watch/libs/README.md for the install steps.
-    // TODO(sdd-apply): add AAR when available — uncomment the line below.
-    // ⚠️  DO NOT uncomment until the placeholder is replaced with a real AAR
-    // (must be a valid ZIP; the placeholder is UTF-8 plaintext and will fail
-    // AAR parsing with an obscure error).
-    // implementation(files("libs/samsung-health-tracking.aar"))
+    // The AAR is committed at watch/app/libs/samsung-health-sensor-api-1.4.1.aar
+    // (SHA-256 893cd5d6..., 61 KB). Downloaded manually from
+    // https://developer.samsung.com/health/sensor and pinned here for
+    // reproducibility — no network fetch at build time. See
+    // watch/app/libs/README.md for the install / upgrade steps and the
+    // version table.
+    //
+    // The AAR is loaded via a `flatDir` repository declared in
+    // settings.gradle.kts so the test compile classpath picks up the
+    // SDK types (`HealthTrackingService`, `ConnectionListener`, etc.)
+    // that the SamsungSpO2Provider unit tests reference. Using
+    // `implementation(files(...))` alone works for the main compile
+    // classpath but does not propagate to the test compile classpath
+    // in AGP 9.x.
+    implementation("com.samsung.android.service.health:samsung-health-sensor-api:1.4.1@aar")
+    testImplementation("com.samsung.android.service.health:samsung-health-sensor-api:1.4.1@aar")
 
     // Sync + data layer (T-WATCH-17..24 production code; Room + KSP added in T-WATCH-18)
     implementation(libs.datastore.preferences)

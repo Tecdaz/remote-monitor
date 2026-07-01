@@ -4,19 +4,32 @@ import com.remotemonitor.watch.data.MeasurementDao
 import com.remotemonitor.watch.data.MeasurementEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
- * Combines BPM (passive) and SpO2 (one-shot) into Room rows.
+ * HR-only orchestrator. Subscribes to [HeartRateSensor.readings] and
+ * writes a [MeasurementEntity] per emission.
  *
- * Architecture (REQ-WATCH-01, REQ-WATCH-02, REQ-WATCH-03):
- * - `start(scope)`: subscribe to [HeartRateSensor.readings] and request
- *   periodic SpO2 readings from [SpO2Provider]. Each emission is
- *   mapped to a [MeasurementEntity] with a fresh UUID v4 `localId` and
- *   written to the DAO.
+ * **HR-only scope** (product decision 2026-07-01, user "Quiero que solo
+ * se mida el HR"): the previous version also polled a one-shot
+ * [SpO2Provider.read] on a 60 s cadence and merged the cached value
+ * into each BPM row. That created a binder race with the continuous
+ * HR provider (both used the same `HealthTrackingService` instance,
+ * tearing the connection down within 15 ms of HR connect). The SpO2
+ * poller is removed for now. The `fix-samsung-spo2-status-gate` cycle
+ * is paused and `spO2Provider` is kept in the constructor signature
+ * (still used in the wiring DI) but never invoked here. The
+ * `MeasurementEntity.spo2Percent` field stays nullable and is written
+ * as `null` for every row.
+ *
+ * Architecture (REQ-WATCH-01, REQ-WATCH-HR-IBI-01):
+ * - `start(scope)`: collect `heartRateSensor.readings`; on each
+ *   emission, write a [MeasurementEntity] with a fresh UUID v4
+ *   `localId` and `spo2Percent = null` to the DAO.
  * - `stop()`: cancel the underlying [Job].
  *
  * Per design D3, presence-in-table = pending upload. The
@@ -25,7 +38,7 @@ import java.util.UUID
  */
 class SensorOrchestrator(
     private val heartRateSensor: HeartRateSensor,
-    private val spO2Provider: SpO2Provider,
+    @Suppress("unused") private val spO2Provider: SpO2Provider,
     private val dao: MeasurementDao,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -38,11 +51,6 @@ class SensorOrchestrator(
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return
         job = scope.launch {
-            // Each BPM reading becomes a row. We don't wait for SpO2
-            // synchronously — SpO2 is requested at most every
-            // SPO2_REQUEST_PERIOD_MS. If SpO2 times out or returns null,
-            // the row is BPM-only (REQ-WATCH-02 S02.2).
-            //
             // runCatching catches Throwable (including CancellationException
             // and JobCancellationException). This is intentional: when
             // [stop] cancels the job, the [collect] suspension throws,
@@ -51,12 +59,11 @@ class SensorOrchestrator(
             runCatching {
                 heartRateSensor.readings
                     .onEach { bpmReading ->
-                        val bpm = bpmReading?.beatsPerMinute
                         val row = MeasurementEntity(
                             localId = UUID.randomUUID().toString(),
                             timestamp = clock(),
-                            heartRateBpm = bpm,
-                            spo2Percent = null, // SpO2 is request-based, not streaming
+                            heartRateBpm = bpmReading?.beatsPerMinute,
+                            spo2Percent = null,
                         )
                         dao.insert(row)
                     }
@@ -71,10 +78,6 @@ class SensorOrchestrator(
     fun stop() {
         job?.cancel()
         job = null
-    }
-
-    private companion object {
-        // SpO2 request cadence (TBD; placeholder for future enhancement).
     }
 }
 
