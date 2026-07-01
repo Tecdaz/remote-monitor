@@ -34,10 +34,15 @@ import kotlin.coroutines.resume
  * [com.remotemonitor.watch.sensor.SensorOrchestrator] only invokes
  * [read] from a single coroutine, so a mutex is unnecessary today.
  *
- * **No 30-second timeout yet** — added in the C2 commit. **No `flush() == false`
- * short-circuit yet** — added in C3. **No `onConnectionFailed` handling
- * yet** — added in C4. **No `disconnectService()` on cancellation yet**
- * — added in C5. The C1 commit ships the happy path only.
+ * **C1..C5 lifecycle details**: happy path, 30s `withTimeoutOrNull`
+ * (REQ-WATCH-62), `onConnectionFailed` handling (REQ-WATCH-74), and
+ * the cancellation hook (REQ-WATCH-65) are all in place. The
+ * `flush() == false` short-circuit that was added in C3 was REMOVED
+ * by `fix-samsung-spo2-flush-bug` — AAR v1.4.1 disassembly proved
+ * `false` is informational (no flush concept for `SPO2_ON_DEMAND`),
+ * not "tracker busy". The current contract spans REQ-WATCH-60..78;
+ * see REQ-WATCH-63 / S-01 for the corrected rationale and the 30s
+ * `withTimeoutOrNull` as the termination guarantee.
  *
  * **Testability deviation from design #333**: the design's code shape
  * constructs `HealthTrackingService(listener, context)` directly. We
@@ -128,14 +133,16 @@ class SamsungSpO2Provider(
                                 service.disconnectService()
                             }
                         })
-                        // C3 short-circuit: a `false` return from flush()
-                        // means the tracker is busy / not ready. Resume null
-                        // immediately so the orchestrator's next cadence tick
-                        // can retry, rather than waiting for the 30 s timeout.
-                        if (!tracker.flush()) {
-                            if (cont.isActive) cont.resume(null)
-                            service.disconnectService()
-                        }
+                        // AAR v1.4.1 disassembly (engram #362) proved that
+                        // `flush()` returns `false` for `SPO2_ON_DEMAND`
+                        // because the tracker type has no flush concept,
+                        // NOT because the tracker is busy. Treat the return
+                        // as informational; the 30s `withTimeoutOrNull`
+                        // (REQ-WATCH-62) is the termination guarantee. We
+                        // still CALL `flush()` to preserve synchronous
+                        // delivery on flush-supporting tracker types
+                        // (REQ-WATCH-76) and for forward-compat.
+                        tracker.flush()
                     }
 
                     override fun onConnectionFailed(error: HealthTrackerException) {
