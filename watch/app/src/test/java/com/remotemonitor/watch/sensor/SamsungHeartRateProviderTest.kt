@@ -586,4 +586,78 @@ class SamsungHeartRateProviderTest {
             job.cancel()
             testScheduler.advanceUntilIdle()
         }
+
+    /**
+     * REQ-WATCH-HR-IBI-02 S02 / null-tolerance: a `HeartRateSet`
+     * DataPoint whose `IBI_LIST` and `IBI_STATUS_LIST` are null MUST
+     * still emit a reading (we don't drop the BPM tick just because
+     * the SDK couldn't compute IBIs in this batch). Also: a null
+     * `HEART_RATE_STATUS` (the per-reading lifecycle status — values
+     * are undocumented by Samsung) MUST NOT break the read.
+     *
+     * RED proof: the current impl already handles null IBI_LIST
+     * gracefully (it falls through to `trySend` with `ibis = null`).
+     * This is a regression guard.
+     */
+    @Test
+    fun `tolerates null IBI_LIST and null HEART_RATE_STATUS`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val connectionListenerSlot = slot<ConnectionListener>()
+            val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+            // DataPoint with BPM but no IBI and no status (e.g. the
+            // very first sample after wakeup, before the SDK has
+            // computed IBI).
+            val dataPoint = mockk<DataPoint>()
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE) } returns 72
+            every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_LIST) } returns null
+            every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns null
+            // The impl does NOT read HEART_RATE_STATUS today; this
+            // assert exists to guard against a future regression
+            // that adds a STATUS gate without first checking the
+            // AAR's nullability contract.
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns null
+
+            val tracker = mockk<HealthTracker>(relaxed = true)
+            every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
+                trackerListenerSlot.captured.onDataReceived(listOf(dataPoint))
+            }
+
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            every { service.connectService() } answers {
+                connectionListenerSlot.captured.onConnectionSuccess()
+            }
+            every {
+                service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
+            } returns tracker
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { listener, _ ->
+                    connectionListenerSlot.captured = listener
+                    service
+                }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+                clock = { 1_700_000_000_000L },
+            )
+
+            val emissions = mutableListOf<HeartRateReading?>()
+            val job = backgroundScope.launch {
+                provider.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            // Exactly one reading — BPM, no IBI, no status.
+            assertEquals(1, emissions.size)
+            val reading = emissions.single()!!
+            assertEquals(72, reading.beatsPerMinute)
+            assertNull("null IBI_LIST must surface as null ibis", reading.ibis)
+            assertNull("null IBI_STATUS_LIST must surface as null ibisStatus", reading.ibisStatus)
+
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+        }
 }
