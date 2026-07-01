@@ -227,6 +227,95 @@ class HealthServicesHeartRateSensorTest {
                 emissions.single(),
             )
         }
+
+    /**
+     * REQ-WATCH-01 S04: when the platform fires `onPermissionLost()`
+     * (the user revoked the underlying sensor permission, or the
+     * Health Services system app denied the binding), the sensor
+     * MUST emit `null` so the orchestrator writes a row with
+     * `heartRateBpm = null` instead of silently dropping the tick.
+     */
+    @Test
+    fun `emits null on permission lost`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val passive = FakePassiveMonitoringClient()
+            val fakeClient = FakeHealthServicesClient(passive)
+            mockkStatic(HealthServices::class)
+            every { HealthServices.getClient(any<Context>()) } returns fakeClient
+
+            val ctx = mockk<Context>(relaxed = true)
+            val sensor = HealthServicesHeartRateSensor(
+                context = ctx,
+                callbackExecutor = DirectExecutor(),
+                clock = { 1_700_000_000_000L },
+            )
+            val emissions = mutableListOf<HeartRateReading?>()
+            backgroundScope.launch {
+                sensor.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            passive.simulatePermissionLost()
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                "exactly one emission expected for onPermissionLost",
+                1,
+                emissions.size,
+            )
+            assertNull(
+                "onPermissionLost must emit null (orchestrator writes null BPM row)",
+                emissions.single(),
+            )
+        }
+
+    /**
+     * REQ-WATCH-01 S05 + REQ-WATCH-81: when the consumer cancels
+     * the collection job, the `awaitClose` block MUST invoke
+     * `clearPassiveListenerCallbackAsync()` exactly once, so the
+     * platform releases the listener registration. Without this
+     * cleanup, a re-collection would register a second callback
+     * and the orchestrator would double-count.
+     */
+    @Test
+    fun `unregisters listener on collection cancel`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val passive = FakePassiveMonitoringClient()
+            val fakeClient = FakeHealthServicesClient(passive)
+            mockkStatic(HealthServices::class)
+            every { HealthServices.getClient(any<Context>()) } returns fakeClient
+
+            val ctx = mockk<Context>(relaxed = true)
+            val sensor = HealthServicesHeartRateSensor(
+                context = ctx,
+                callbackExecutor = DirectExecutor(),
+                clock = { 1_700_000_000_000L },
+            )
+
+            // Start collection. Capture the registration first.
+            val job = backgroundScope.launch {
+                sensor.readings.collect { /* discard */ }
+            }
+            testScheduler.advanceUntilIdle()
+            assertNotNull("registration must happen before cancel", passive.capturedCallback)
+            assertEquals(
+                "no clear call before cancel",
+                0,
+                passive.clearCallCount,
+            )
+
+            // Cancel the collecting job. awaitClose must run the
+            // clear via Java reflection (see KDoc on the production
+            // side; ListenableFuture is not on the compile classpath).
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                "clearPassiveListenerCallbackAsync must be called exactly once on cancel",
+                1,
+                passive.clearCallCount,
+            )
+        }
 }
 
 /** Test helper: run commands inline on the calling thread. */
@@ -279,6 +368,14 @@ private class FakePassiveMonitoringClient : PassiveMonitoringClient {
     fun simulateEmptyContainer() {
         val container = DataPointContainer(emptyList<androidx.health.services.client.data.DataPoint<*>>())
         capturedCallback!!.onNewDataPointsReceived(container)
+    }
+
+    /**
+     * Fire `onPermissionLost()` on the captured callback. Used by
+     * T-BPM-05 to drive the permission-revoked signal.
+     */
+    fun simulatePermissionLost() {
+        capturedCallback!!.onPermissionLost()
     }
 
     override fun setPassiveListenerServiceAsync(
