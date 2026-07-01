@@ -538,4 +538,52 @@ class SamsungHeartRateProviderTest {
             job.cancel()
             testScheduler.advanceUntilIdle()
         }
+
+    /**
+     * REQ-WATCH-HR-IBI-04: when the binder fires `onConnectionFailed`,
+     * the flow MUST emit `null` and close. `awaitClose` then runs and
+     * calls `disconnectService` exactly once.
+     *
+     * RED proof: the current impl DOES emit null and close on
+     * `onConnectionFailed`. This test is a regression guard.
+     */
+    @Test
+    fun `read returns null on ConnectionFailed`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val connectionListenerSlot = slot<ConnectionListener>()
+
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            every { service.connectService() } answers {
+                connectionListenerSlot.captured.onConnectionFailed(
+                    HealthTrackerException("connection failed"),
+                )
+            }
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { listener, _ ->
+                    connectionListenerSlot.captured = listener
+                    service
+                }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+            )
+
+            val emissions = mutableListOf<HeartRateReading?>()
+            val job = backgroundScope.launch {
+                provider.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            // Exactly one null emission.
+            assertEquals(1, emissions.size)
+            assertNull("onConnectionFailed must emit null", emissions.single())
+            // DisconnectService called exactly once (from awaitClose).
+            io.mockk.verify(exactly = 1) { service.disconnectService() }
+
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+        }
 }
