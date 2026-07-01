@@ -27,9 +27,10 @@ import kotlinx.coroutines.flow.callbackFlow
  * - One `HealthTrackingService` per `callbackFlow` collect (single-shot
  *   binder, not reusable after `disconnectService()`).
  * - `getHealthTracker` wrapped in `runCatching`; null result -> close.
- * - `disconnectService` in `awaitClose` AND `invokeOnCancellation`
- *   (the cold-flow contract; pre-connection cancel still triggers the
- *   cancellation hook).
+ * - `disconnectService` in `awaitClose`, gated on a
+ *   `connectionEstablished` flag so pre-`onConnectionSuccess` cancel
+ *   does NOT call disconnect on a not-yet-live service (REQ-WATCH-HR-IBI-05
+ *   S02 — design §17 WARNING).
  *
  * **IBI batching rule (skill "Critical batching rule")**:
  * `HEART_RATE_CONTINUOUS` accumulates inter-beat intervals into the
@@ -60,9 +61,17 @@ class SamsungHeartRateProvider(
 
     override val readings: Flow<HeartRateReading?> = callbackFlow {
         lateinit var service: HealthTrackingService
+        // REQ-WATCH-HR-IBI-05 S02: track whether the binder ever
+        // reached `onConnectionSuccess`. Pre-connection cancel must
+        // NOT call `disconnectService` because the binder was never
+        // live (calling it on a not-yet-connected service is a
+        // no-op per the AAR, but spec S02 mandates "NOT called").
+        // Post-connection cancel MUST call it (binder is live).
+        var connectionEstablished: Boolean = false
 
         val listener = object : ConnectionListener {
             override fun onConnectionSuccess() {
+                connectionEstablished = true
                 // REQ-WATCH-HR-IBI-06: wrap getHealthTracker in
                 // runCatching; on exception or null, emit null and
                 // close. The `close()` triggers `awaitClose` to
@@ -116,6 +125,12 @@ class SamsungHeartRateProvider(
             }
 
             override fun onConnectionFailed(error: HealthTrackerException) {
+                // The binder is live (we just got a connectService
+                // response); mark the connection as established so
+                // awaitClose releases it. Without this, the gate
+                // would skip the disconnect on the failure path
+                // and leak the binder.
+                connectionEstablished = true
                 // REQ-WATCH-HR-IBI-04: ConnectionFailed -> null + close.
                 trySend(null)
                 close()
@@ -129,12 +144,14 @@ class SamsungHeartRateProvider(
         service = serviceFactory(listener, context)
         service.connectService()
 
-        // REQ-WATCH-HR-IBI-05 S01: awaitClose releases the binder on
-        // normal collection cancel. runCatching absorbs the
-        // RemoteException the SDK can throw if the service is already
-        // gone.
+        // REQ-WATCH-HR-IBI-05 S01 + S02: awaitClose releases the binder
+        // on collection cancel, but ONLY if the binder is live
+        // (post-`onConnectionSuccess`). The pre-connection cancel
+        // path must NOT call disconnectService per spec S02.
         awaitClose {
-            runCatching { service.disconnectService() }
+            if (connectionEstablished) {
+                runCatching { service.disconnectService() }
+            }
         }
     }
 }
