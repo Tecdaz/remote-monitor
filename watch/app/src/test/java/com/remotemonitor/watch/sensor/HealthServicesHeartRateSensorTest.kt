@@ -24,6 +24,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Duration
 import java.util.concurrent.Executor
@@ -175,6 +176,57 @@ class HealthServicesHeartRateSensorTest {
                 reading.timestampMillis,
             )
         }
+
+    /**
+     * REQ-WATCH-01 S03: when `onNewDataPointsReceived` fires with a
+     * [DataPointContainer] that has no `HEART_RATE_BPM` data points
+     * (empty list), the sensor MUST emit `null` (off-wrist / no
+     * measurable BPM).
+     *
+     * **Design deviation (T-BPM-04)**: tasks #353 also asked for a
+     * test driving `onDataPointsAvailabilityChanged(container,
+     * Availability.UNAVAILABLE)`. The platform `PassiveListenerCallback`
+     * interface (verified from `health-services-client-1.1.0-alpha02-api.jar`
+     * bytecode) does NOT expose that method — the spec's REQ-WATCH-01
+     * scenarios S01..S05 also don't reference it. The "data unavailable"
+     * signal from the platform arrives as an empty `DataPointContainer`
+     * in `onNewDataPointsReceived`, which is the path this test
+     * covers. See apply-progress deviation #1.
+     */
+    @Test
+    fun `emits null on empty DataPoint container`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val passive = FakePassiveMonitoringClient()
+            val fakeClient = FakeHealthServicesClient(passive)
+            mockkStatic(HealthServices::class)
+            every { HealthServices.getClient(any<Context>()) } returns fakeClient
+
+            val ctx = mockk<Context>(relaxed = true)
+            val sensor = HealthServicesHeartRateSensor(
+                context = ctx,
+                callbackExecutor = DirectExecutor(),
+                clock = { 1_700_000_000_000L },
+            )
+            val emissions = mutableListOf<HeartRateReading?>()
+            backgroundScope.launch {
+                sensor.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            // Drive the callback with an empty container.
+            passive.simulateEmptyContainer()
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                "exactly one emission expected for an empty container",
+                1,
+                emissions.size,
+            )
+            assertNull(
+                "empty DataPoint container must emit null (off-wrist)",
+                emissions.single(),
+            )
+        }
 }
 
 /** Test helper: run commands inline on the calling thread. */
@@ -215,6 +267,17 @@ private class FakePassiveMonitoringClient : PassiveMonitoringClient {
             mockk<DataPointAccuracy>(relaxed = true),
         )
         val container = DataPointContainer(listOf(sample))
+        capturedCallback!!.onNewDataPointsReceived(container)
+    }
+
+    /**
+     * Deliver an empty [DataPointContainer] (no data points at all)
+     * to the captured callback. Used by T-BPM-04 to drive the
+     * "no BPM data available" signal — the platform surfaces this
+     * when the sensor is off-wrist or has no fresh reading.
+     */
+    fun simulateEmptyContainer() {
+        val container = DataPointContainer(emptyList<androidx.health.services.client.data.DataPoint<*>>())
         capturedCallback!!.onNewDataPointsReceived(container)
     }
 
