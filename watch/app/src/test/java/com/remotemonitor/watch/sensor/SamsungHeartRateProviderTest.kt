@@ -481,4 +481,61 @@ class SamsungHeartRateProviderTest {
             // because the binder was never live.
             io.mockk.verify(exactly = 0) { service.disconnectService() }
         }
+
+    /**
+     * REQ-WATCH-HR-IBI-04: when the tracker fires `onError(TrackerError)`,
+     * the flow MUST emit `null` and close. The `awaitClose` block then
+     * runs and calls `disconnectService` exactly once.
+     *
+     * RED proof: the current impl DOES emit null and close on
+     * TrackerError (see WU-1.4's `onError` override). This test is
+     * a regression guard. It will pass on the current impl.
+     */
+    @Test
+    fun `read returns null on TrackerError`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val connectionListenerSlot = slot<ConnectionListener>()
+            val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+            val tracker = mockk<HealthTracker>(relaxed = true)
+            // Fire onError synchronously on setEventListener.
+            every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
+                trackerListenerSlot.captured.onError(mockk<HealthTracker.TrackerError>(relaxed = true))
+            }
+
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            every { service.connectService() } answers {
+                connectionListenerSlot.captured.onConnectionSuccess()
+            }
+            every {
+                service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
+            } returns tracker
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { listener, _ ->
+                    connectionListenerSlot.captured = listener
+                    service
+                }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+            )
+
+            val emissions = mutableListOf<HeartRateReading?>()
+            val job = backgroundScope.launch {
+                provider.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            // Exactly one null emission.
+            assertEquals(1, emissions.size)
+            assertNull("TrackerError must emit null", emissions.single())
+            // DisconnectService called exactly once (from awaitClose).
+            io.mockk.verify(exactly = 1) { service.disconnectService() }
+
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+        }
 }
