@@ -11,8 +11,8 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID as PgUUID
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY, UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -54,4 +54,11 @@ class ClinicalMeasurement(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=None,  # server default is added by the migration
+    )
+    # REQ-WATCH-HR-IBI-13: IBI samples (inter-beat intervals in ms).
+    # Stored as ``bigint[]`` so the column is queryable for the HRV
+    # consumer (``array_length(ibis_ms)``, percentile queries). NULL
+    # for old clients and devices that do not expose IBI.
+    ibis_ms: Mapped[list[int] | None] = mapped_column(
+        ARRAY(BigInteger), nullable=True
     )
