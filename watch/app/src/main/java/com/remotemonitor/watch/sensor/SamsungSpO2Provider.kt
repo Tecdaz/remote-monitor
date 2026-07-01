@@ -76,6 +76,17 @@ class SamsungSpO2Provider(
          * indefinitely if the Samsung Health service is unresponsive.
          */
         const val READ_TIMEOUT_MS: Long = 30_000L
+
+        /**
+         * REQ-WATCH-79: the Samsung Health Sensor SDK AAR v1.4.1
+         * signals "measurement complete" via `ValueKey.SpO2Set.STATUS
+         * == 2`. The SDK fires one or more pre-complete DataPoints
+         * per on-demand cycle with non-2 STATUS values (0 =
+         * "calculating", -4 = "device moved", -5 = "low signal",
+         * -6 = "timeout"). We gate [onDataReceived] on this value so
+         * the cache only ever carries a real reading.
+         */
+        private const val SPO2_STATUS_COMPLETE: Int = 2
     }
 
     override suspend fun read(): SpO2Reading? {
@@ -112,10 +123,30 @@ class SamsungSpO2Provider(
                             return
                         }
                         tracker.setEventListener(object : HealthTracker.TrackerEventListener {
+                            // REQ-WATCH-79: gate on STATUS==2 before
+                            // reading SPO2. The Samsung Health Sensor
+                            // SDK AAR v1.4.1 fires multiple DataPoints
+                            // per on-demand cycle: first with STATUS=0
+                            // (calculating, SPO2=0.0) and later with
+                            // STATUS=2 (complete, SPO2=actual). A
+                            // previous revision resumed on the first
+                            // DataPoint's SPO2 value, which leaked a
+                            // 0.0 reading to the cache and was
+                            // rejected by the backend's `gt=0`
+                            // validator. We now ignore every DataPoint
+                            // whose STATUS is null or != 2, leaving
+                            // the binder connection open so the SDK
+                            // can deliver the next callback within
+                            // the 30 s [READ_TIMEOUT_MS] budget. Maps
+                            // to the codelab pattern (early-return on
+                            // non-2, keep listening) and the spec's
+                            // S-01..S-03.
                             override fun onDataReceived(dataPoints: List<DataPoint>) {
                                 if (!cont.isActive) return
-                                val intVal = dataPoints.firstOrNull()
-                                    ?.getValue(ValueKey.SpO2Set.SPO2) ?: return
+                                val dataPoint = dataPoints.firstOrNull() ?: return
+                                val status = dataPoint.getValue(ValueKey.SpO2Set.STATUS) ?: return
+                                if (status != SPO2_STATUS_COMPLETE) return
+                                val intVal = dataPoint.getValue(ValueKey.SpO2Set.SPO2) ?: return
                                 cont.resume(
                                     SpO2Reading(
                                         percent = intVal.toDouble(),
