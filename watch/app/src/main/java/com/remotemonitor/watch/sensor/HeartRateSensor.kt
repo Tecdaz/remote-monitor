@@ -24,8 +24,19 @@ interface HeartRateSensor {
     val readings: Flow<HeartRateReading?>
 }
 
-/** Single BPM reading at a point in time. */
+/**
+ * Single BPM reading at a point in time.
+ *
+ * [ibis] and [ibisStatus] are added by the `feat-watch-samsung-hr-ibi`
+ * cycle (REQ-WATCH-HR-IBI-07) to carry inter-beat-interval data from
+ * the Samsung `HEART_RATE_CONTINUOUS` tracker. Both are defaulted to
+ * `null` at the END of the parameter list so existing call sites
+ * (`HealthServicesHeartRateSensor`, `SensorOrchestratorTest`,
+ * `HealthServicesHeartRateSensorTest`) keep compiling without changes.
+ */
 data class HeartRateReading(
     val beatsPerMinute: Int,
     val timestampMillis: Long,
+    val ibis: List<Long>? = null,
+    val ibisStatus: List<Int>? = null,
 )
