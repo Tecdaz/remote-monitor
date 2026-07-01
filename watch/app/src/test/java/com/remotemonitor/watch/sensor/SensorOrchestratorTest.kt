@@ -112,6 +112,48 @@ class SensorOrchestratorTest {
     }
 
     /**
+     * REQ-WATCH-HR-IBI-10 S01 (PR 2 wire): the orchestrator MUST
+     * forward `HeartRateReading.ibis` to `MeasurementEntity.ibisMs`
+     * verbatim. A BPM reading with `ibis = [800L, 820L]` must produce
+     * a row whose `ibisMs` field is the same list — not null, not
+     * truncated, not a different list. This is the WU-2.3 RED test:
+     * it fails until the orchestrator's `onEach` wires the field
+     * through (WU-2.4).
+     */
+    @Test
+    fun `orchestrator forwards ibis list to MeasurementEntity`() = runTest(UnconfinedTestDispatcher()) {
+        val heartRateSensor = FakeHeartRateSensor(
+            flowOf(
+                HeartRateReading(
+                    beatsPerMinute = 72,
+                    timestampMillis = 1_700_000_000_000L,
+                    ibis = listOf(800L, 820L),
+                ),
+            )
+        )
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        val dao = mockk<MeasurementDao>(relaxed = true)
+        val captured = mutableListOf<MeasurementEntity>()
+        coEvery { dao.insert(capture(captured)) } returns Unit
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = heartRateSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        orchestrator.start(backgroundScope)
+        testScheduler.advanceUntilIdle()
+
+        val row = captured.single { it.heartRateBpm == 72 }
+        // The orchestrator MUST forward the IBI list to the row.
+        // RED until WU-2.4: row.ibisMs will be null because the
+        // orchestrator's onEach does not yet pass bpmReading?.ibis.
+        assertEquals(listOf(800L, 820L), row.ibisMs)
+    }
+
+    /**
      * HR-only mode (product decision 2026-07-01): the orchestrator
      * MUST NOT call `spO2Provider.read()` — that call is what created
      * the binder race with the continuous HR provider. We advance
