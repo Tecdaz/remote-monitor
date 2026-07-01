@@ -347,6 +347,20 @@ def _valid_measurement(local_id: UUID | None = None) -> dict:
     }
 
 
+def _valid_measurement_with_ibis(
+    local_id: UUID | None = None,
+    ibis_ms: list[int] | None = None,
+) -> dict:
+    """A valid ``MeasurementBatch`` that also carries an ``ibis_ms`` list.
+
+    Mirrors ``_valid_item_with_ibis`` in test_ingest.py; lives here so
+    the WS test file stays self-contained.
+    """
+    item = _valid_measurement(local_id)
+    item["ibis_ms"] = ibis_ms if ibis_ms is not None else [800, 820]
+    return item
+
+
 class TestEndToEnd:
     """End-to-end tests: POST a measurement, assert the WS receives the event.
 
@@ -434,6 +448,49 @@ class TestEndToEnd:
             body = response.json()
             assert len(body["accepted_ids"]) == 1
             assert body["rejected"] == []
+
+    def test_post_with_ibis_ms_publishes_ibis_ms_in_ws_payload(self) -> None:
+        """WU-2.13 RED — REQ-WATCH-HR-IBI-13 S02.
+
+        When a measurement carries ``ibis_ms=[800, 820]``, the WS
+        broadcast ``measurement.created`` frame must include the
+        same list under the ``data`` key. Currently the WS dict in
+        ``services.ingest`` does not forward ``ibis_ms``, so the
+        frame is missing the field (or carries ``None``).
+        """
+        from app.main import app
+
+        patient_id = uuid4()
+        patient_number = f"P-{patient_id.hex[:8]}"
+        local_id = uuid4()
+
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                f"/ws/patients/{patient_id}"
+            ) as ws:
+                ws.receive_json()  # WsSubscribed
+
+                q: queue.Queue = queue.Queue()
+                self._read_next_frame_bg(ws, q)
+
+                response = client.post(
+                    f"/api/v1/patients/{patient_id}/measurements",
+                    json=[_valid_measurement_with_ibis(local_id, ibis_ms=[800, 820])],
+                    headers={"X-Patient-Number": patient_number},
+                )
+                assert response.status_code == 200, response.text
+
+                kind, payload = q.get(timeout=2.0)
+                assert kind == "ok", f"reader failed: {payload!r}"
+                assert payload["type"] == "measurement.created"
+                # The frame MUST carry ibis_ms with the same list.
+                assert "ibis_ms" in payload["data"], (
+                    f"ibis_ms missing from WS payload: {payload['data']!r}"
+                )
+                assert list(payload["data"]["ibis_ms"]) == [800, 820], (
+                    f"expected ibis_ms=[800, 820], got "
+                    f"{payload['data'].get('ibis_ms')!r}"
+                )
 
 
 # =========================================================================
