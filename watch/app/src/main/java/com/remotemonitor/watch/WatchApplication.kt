@@ -44,6 +44,15 @@ import kotlinx.coroutines.SupervisorJob
  * as factory lambdas because the ViewModels are not Android ViewModels
  * (they don't need the `viewModelScope` machinery for a PoC — the
  * shared [applicationScope] is enough).
+ *
+ * **Lifecycle (REQ-WATCH-66, fix-watch-orchestrator-start)**: the
+ * [sensorOrchestrator] is started from [onCreate] against the
+ * [applicationScope]. This is the CALLING SITE that was missing in
+ * `feat-watch-samsung-spo2` (see `sdd/feat-watch-samsung-spo2/verify-report`
+ * #340 §"E2E status" and the 6th deviation in apply-progress #335). The
+ * orchestrator is constructed lazily but [SensorOrchestrator.start] is
+ * idempotent, so a second call (e.g. after a process restart) is a
+ * no-op.
  */
 class WatchApplication : Application() {
 
@@ -164,6 +173,12 @@ class WatchApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // REQ-WATCH-66 (fix-watch-orchestrator-start): kick off the
+        // sensor collection loop. Without this call, the orchestrator
+        // is constructed (lazy) but never activated, and
+        // clinical.measurements stays empty. Idempotent: safe to call
+        // multiple times across process restarts.
+        sensorOrchestrator.start(applicationScope)
     }
 
     override fun onTerminate() {
