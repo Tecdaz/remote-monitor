@@ -28,7 +28,7 @@ export interface Patient { patient_id: string; patient_number: string; device_mo
 # openapi.yaml#/components/schemas/Measurement (allOf: MeasurementBatch + server-assigned fields)
 type: object
 required: [id, patient_id, local_id, timestamp, received_at]
-properties: { id: {type: string, format: uuid}, patient_id: {type: string, format: uuid}, local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, received_at: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100} }
+properties: { id: {type: string, format: uuid}, patient_id: {type: string, format: uuid}, local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, received_at: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}} }
 ```
 ```python
 class Measurement(BaseModel):
@@ -36,12 +36,13 @@ class Measurement(BaseModel):
     timestamp: datetime; received_at: datetime
     heart_rate_bpm: int | None = Field(None, ge=1, le=299)
     spo2_percent: float | None = Field(None, gt=0, le=100)
+    ibis_ms: list[int] | None = Field(None, description="Inter-beat intervals in ms; per-item [1, 5000].")
 ```
 ```typescript
-export interface Measurement { id: string; patient_id: string; local_id: string; timestamp: string; received_at: string; heart_rate_bpm: number | null; spo2_percent: number | null; }
+export interface Measurement { id: string; patient_id: string; local_id: string; timestamp: string; received_at: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; }
 ```
 ```kotlin
-@Serializable data class Measurement(val id: UUID, val patientId: UUID, val localId: UUID, val timestamp: Instant, val receivedAt: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null)
+@Serializable data class Measurement(val id: UUID, val patientId: UUID, val localId: UUID, val timestamp: Instant, val receivedAt: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null)
 ```
 
 ## MeasurementBatch
@@ -49,19 +50,20 @@ export interface Measurement { id: string; patient_id: string; local_id: string;
 # openapi.yaml#/components/schemas/MeasurementBatch
 type: object
 required: [local_id, timestamp]
-properties: { local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100} }
+properties: { local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}} }
 ```
 ```python
 class MeasurementBatch(BaseModel):
     local_id: UUID; timestamp: datetime
     heart_rate_bpm: int | None = Field(None, ge=1, le=299)
     spo2_percent: float | None = Field(None, gt=0, le=100)
+    ibis_ms: list[int] | None = Field(None, description="Inter-beat intervals in ms; per-item [1, 5000].")
 ```
 ```typescript
-export interface MeasurementBatch { local_id: string; timestamp: string; heart_rate_bpm: number | null; spo2_percent: number | null; }
+export interface MeasurementBatch { local_id: string; timestamp: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; }
 ```
 ```kotlin
-@Serializable data class MeasurementBatch(val localId: UUID, val timestamp: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null)
+@Serializable data class MeasurementBatch(val localId: UUID, val timestamp: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null)
 ```
 
 ## BatchResponse

@@ -347,20 +347,6 @@ def _valid_measurement(local_id: UUID | None = None) -> dict:
     }
 
 
-def _valid_measurement_with_ibis(
-    local_id: UUID | None = None,
-    ibis_ms: list[int] | None = None,
-) -> dict:
-    """A valid ``MeasurementBatch`` that also carries an ``ibis_ms`` list.
-
-    Mirrors ``_valid_item_with_ibis`` in test_ingest.py; lives here so
-    the WS test file stays self-contained.
-    """
-    item = _valid_measurement(local_id)
-    item["ibis_ms"] = ibis_ms if ibis_ms is not None else [800, 820]
-    return item
-
-
 class TestEndToEnd:
     """End-to-end tests: POST a measurement, assert the WS receives the event.
 
@@ -463,6 +449,8 @@ class TestEndToEnd:
         patient_id = uuid4()
         patient_number = f"P-{patient_id.hex[:8]}"
         local_id = uuid4()
+        item = _valid_measurement(local_id)
+        item["ibis_ms"] = [800, 820]
 
         with TestClient(app) as client:
             with client.websocket_connect(
@@ -475,7 +463,7 @@ class TestEndToEnd:
 
                 response = client.post(
                     f"/api/v1/patients/{patient_id}/measurements",
-                    json=[_valid_measurement_with_ibis(local_id, ibis_ms=[800, 820])],
+                    json=[item],
                     headers={"X-Patient-Number": patient_number},
                 )
                 assert response.status_code == 200, response.text

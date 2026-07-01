@@ -200,6 +200,10 @@ components:
         timestamp:    { type: string, format: date-time, description: "ISO 8601 with timezone, within the last 24 hours and not more than 5 minutes in the future." }
         heart_rate_bpm: { type: [integer, "null"], minimum: 1, maximum: 299, description: "Heart rate in BPM. `null` if the sensor failed." }
         spo2_percent:   { type: [number, "null"], exclusiveMinimum: 0, maximum: 100, description: "SpO2 percentage (0-100). `null` if the sensor failed." }
+        ibis_ms:
+          type: [array, "null"]
+          items: { type: integer, minimum: 1, maximum: 5000 }
+          description: "Inter-beat intervals in milliseconds (Samsung Health Sensor SDK IBI_LIST). `null` for devices that do not expose IBI samples. Per-item clamp `[1, 5000]` matches the Pydantic field validator."
     Measurement:
       allOf:
         - $ref: "#/components/schemas/MeasurementBatch"
