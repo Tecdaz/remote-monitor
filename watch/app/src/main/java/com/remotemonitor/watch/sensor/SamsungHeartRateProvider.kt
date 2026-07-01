@@ -64,12 +64,15 @@ class SamsungHeartRateProvider(
         val listener = object : ConnectionListener {
             override fun onConnectionSuccess() {
                 // REQ-WATCH-HR-IBI-06: wrap getHealthTracker in
-                // runCatching; on exception -> close the flow.
+                // runCatching; on exception or null, emit null and
+                // close. The `close()` triggers `awaitClose` to
+                // run, which is where we call `disconnectService` —
+                // no need to call it twice here.
                 val tracker = runCatching {
                     service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
                 }.getOrNull()
                 if (tracker == null) {
-                    runCatching { service.disconnectService() }
+                    trySend(null)
                     close()
                     return
                 }
