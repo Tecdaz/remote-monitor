@@ -19,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -301,6 +302,76 @@ class SamsungHeartRateProviderTest {
                 "long",
                 firstElement::class.java.name,
             )
+
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+        }
+
+    /**
+     * REQ-WATCH-HR-IBI-06: when `getHealthTracker(HEART_RATE_CONTINUOUS)`
+     * throws `HealthTrackerException`, the flow MUST emit `null` and
+     * `disconnectService` MUST be called exactly once (the binder IS
+     * live by the time the throw happens).
+     *
+     * RED proof: the current impl wraps `getHealthTracker` in
+     * `runCatching` and calls `disconnectService` on null. This test
+     * will pass on the current impl. The WU-1.8 RED establishes the
+     * test, WU-1.9 GREEN hardens the impl with the same `runCatching`
+     * pattern (which is already in place from WU-1.4's defensive
+     * pattern).
+     */
+    @Test
+    fun `getHealthTracker throws - read returns null and disconnectService called once`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val connectionListenerSlot = slot<ConnectionListener>()
+
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            every { service.connectService() } answers {
+                connectionListenerSlot.captured.onConnectionSuccess()
+            }
+            // Simulate the AAR throwing when the device does not
+            // support HEART_RATE_CONTINUOUS (or permission was denied).
+            // The AAR's HealthTrackerException takes a String
+            // message; the error code (PACKAGE_NOT_INSTALLED,
+            // OLD_PLATFORM_VERSION, ...) is set via the protected
+            // setter that the platform calls internally. For test
+            // purposes the message is enough.
+            every {
+                service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
+            } throws HealthTrackerException("tracker unavailable on this device")
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { listener, _ ->
+                    connectionListenerSlot.captured = listener
+                    service
+                }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+            )
+
+            val emissions = mutableListOf<HeartRateReading?>()
+            val job = backgroundScope.launch {
+                provider.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            // Assert: exactly one null emission (the close path).
+            assertEquals(
+                "getHealthTracker throw must yield exactly one null emission",
+                1,
+                emissions.size,
+            )
+            assertNull(
+                "the emission must be null (no reading possible)",
+                emissions.single(),
+            )
+            // Assert: disconnectService was called exactly once.
+            // The binder IS live when onConnectionSuccess fired, so
+            // we MUST release it.
+            io.mockk.verify(exactly = 1) { service.disconnectService() }
 
             job.cancel()
             testScheduler.advanceUntilIdle()
