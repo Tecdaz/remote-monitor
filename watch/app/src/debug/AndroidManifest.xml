@@ -21,9 +21,19 @@
   ensures Robolectric can still resolve the class when the merged
   manifest is pointed at by `robolectric.manifest` in
   `app/build.gradle.kts`.
+
+  WU-2.19 fix #3 (CRITICAL discovered during the E2E re-run after
+  Fix 1 + Fix 2): the `-PapiBaseUrl=http://192.168.0.170:8000/`
+  debug APK POSTs correctly but Android 9+ blocks cleartext HTTP
+  by default. `network_security_config.xml` (sibling file under
+  `res/xml/`) whitelists the dev hosts we target. This attribute
+  is debug-only — release builds keep the platform default
+  (cleartext forbidden), so production traffic to a real
+  `https://...` API works without modification.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
+    <application
+        android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name="androidx.activity.ComponentActivity"
             android:exported="true" />

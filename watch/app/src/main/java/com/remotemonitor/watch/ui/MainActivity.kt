@@ -5,6 +5,7 @@
 
 package com.remotemonitor.watch.ui
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,6 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.remotemonitor.watch.WatchApplication
+import com.remotemonitor.watch.sync.SyncForegroundService
 import com.remotemonitor.watch.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -28,6 +30,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as WatchApplication
+        // WU-2.19 GREEN: start the IBI sync loop as a foreground service.
+        // The service is declared `exported="false"` in AndroidManifest.xml
+        // (Android 12+ security default for services with a
+        // `foregroundServiceType`), so it MUST be started from within the
+        // app — `adb shell am start-foreground-service` fails with
+        // "Permission Denial: shell uid 2000 cannot start non-exported
+        // service of uid 10000". MainActivity.onCreate is the natural
+        // entry point: opening the app starts the sync.
+        startForegroundService(Intent(this, SyncForegroundService::class.java))
         setContent {
             MyApplicationTheme {
                 WatchApp(app = app)

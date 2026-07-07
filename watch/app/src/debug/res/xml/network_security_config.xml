@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only network security config (WU-2.19 fix #3, E2E engram #398).
+
+  Android 9+ (API 28) blocks cleartext HTTP by default
+  (`usesCleartextTraffic=false`). The PR 1 E2E on a real device
+  shipped a `-PapiBaseUrl=http://192.168.0.170:8000/` build that
+  started POSTing correctly after the foreground service fix, but
+  each POST failed with
+  `java.net.UnknownServiceException: CLEARTEXT communication to
+  192.168.0.170 not permitted by network security policy`.
+
+  This config is DEBUG-VARIANT ONLY (`app/src/debug/res/xml/...`), so
+  release builds keep the platform-default secure policy (no
+  cleartext). The allowlist is narrowly scoped to the dev hosts we
+  actually target:
+
+    - `192.168.0.170` — dev machine running uvicorn (real-device PoC).
+    - `10.0.2.2`      — Android emulator host loopback.
+    - `localhost`     — convenience for local proxy / port-forwarding.
+
+  Production builds are unaffected: the release manifest does not
+  reference this file, and the platform default rejects all cleartext.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.0.170</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
