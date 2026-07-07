@@ -143,4 +143,77 @@ class MeasurementSerializationTest {
         assertTrue("body must contain heart_rate_bpm=80, got: $json", json.contains("\"heart_rate_bpm\":80"))
         assertTrue("body must contain spo2_percent=97.0, got: $json", json.contains("\"spo2_percent\":97.0"))
     }
+
+    /**
+     * REQ-WATCH-HR-IBI-10 S02: a row with `ibisMs = [800L, 820L]`
+     * round-trips through Moshi: the body contains
+     * `"ibis_ms":[800,820]` (JSON ints, not longs, not strings), and
+     * the deserialized row carries the same `List<Long>` shape. The
+     * `IbiListConverter` (Room layer) shares the same wire format so
+     * the on-disk column matches what hits the backend. RED until
+     * the existing wire serializer handles `List<Long>` end-to-end;
+     * GREEN the moment Moshi (default `KotlinJsonAdapterFactory`)
+     * routes the field through its default list-of-integer adapter.
+     */
+    @Test
+    fun ibis_ms_round_trips_through_moshi() {
+        val original = MeasurementEntity(
+            localId = "L-IBI-1",
+            timestamp = 1_719_760_272_000L,
+            heartRateBpm = 72,
+            spo2Percent = null,
+            ibisMs = listOf(800L, 820L, 790L),
+        )
+
+        val adapter = moshi.adapter(MeasurementEntity::class.java)
+        val json = adapter.toJson(original)
+        // Wire shape: ibis_ms is a JSON array of integers.
+        assertTrue(
+            "body must serialize ibis_ms as a JSON int array, got: $json",
+            json.contains("\"ibis_ms\":[800,820,790]"),
+        )
+
+        // Round-trip: the deserialized entity must carry the same
+        // List<Long>. The IbiListConverter is Room-only, so the
+        // Moshi path uses Moshi's default List<Long> -> JSON array
+        // -> List<Long> adapter (no custom adapter needed for the
+        // wire shape — see design §4 S02 and WU-2.6).
+        val parsed = adapter.fromJson(json)
+        assertNotNull("deserialized row must not be null", parsed)
+        assertEquals(
+            "ibisMs must round-trip through Moshi",
+            listOf(800L, 820L, 790L),
+            parsed!!.ibisMs,
+        )
+    }
+
+    /**
+     * Null IBI round-trip: when the sensor delivers a reading
+     * without IBI samples (display-off collapse, or the SDK
+     * didn't fill `IBI_LIST` for this DataPoint), the row's
+     * `ibisMs` is `null` and the wire body either omits the key
+     * or writes `"ibis_ms":null`. Per design §4, the Moshi wire
+     * format is the same nullable semantics as the Pydantic
+     * `list[int] | None = None` schema.
+     */
+    @Test
+    fun null_ibis_ms_round_trips_as_omitted_or_explicit_null() {
+        val original = MeasurementEntity(
+            localId = "L-IBI-2",
+            timestamp = 1_719_760_272_000L,
+            heartRateBpm = 72,
+            spo2Percent = null,
+            ibisMs = null,
+        )
+
+        val json = moshi.adapter(MeasurementEntity::class.java).toJson(original)
+        // Moshi 1.15.1's KotlinJsonAdapter omits null primitive
+        // fields by default; both omission and explicit null are
+        // spec-valid per backend Pydantic extra="forbid" (an
+        // unknown key is forbidden, but absence is allowed).
+        assertTrue(
+            "body must either omit ibis_ms or write it as null, got: $json",
+            !json.contains("\"ibis_ms\":") || json.contains("\"ibis_ms\":null"),
+        )
+    }
 }

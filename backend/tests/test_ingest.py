@@ -46,6 +46,18 @@ def _valid_item(local_id: UUID | None = None) -> dict:
     }
 
 
+def _valid_item_with_ibis(
+    local_id: UUID | None = None,
+    ibis_ms: list[int] | None = None,
+) -> dict:
+    """A valid ``MeasurementBatch`` carrying an ``ibis_ms`` list
+    (REQ-WATCH-HR-IBI-11 S01). Defaults to a 2-sample list.
+    """
+    item = _valid_item(local_id)
+    item["ibis_ms"] = ibis_ms if ibis_ms is not None else [800, 820]
+    return item
+
+
 def _invalid_item() -> dict:
     """An item that fails Pydantic validation (heart_rate out of range)."""
     return {
@@ -412,6 +424,63 @@ class TestIngestService:
         assert sorted(audit.context["local_ids"]) == sorted(
             [str(lid1), str(lid2)]
         )
+
+    # --- REQ-WATCH-HR-IBI-11: ingest accepts ibis_ms ---------------------
+
+    async def test_upload_accepts_item_with_ibis_ms(
+        self, session: AsyncSession
+    ) -> None:
+        """REQ-WATCH-HR-IBI-11 S01: a POST body with `ibis_ms=[800,820]`
+        is accepted and the `local_id` lands in `accepted_ids`.
+        RED until the Pydantic schema adds the field (WU-2.10).
+        """
+        path_pid = uuid4()
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="P-IBI-1",
+            raw_items=[_valid_item_with_ibis()],
+        )
+        assert len(response.accepted_ids) == 1
+        assert response.rejected == []
+
+    async def test_upload_accepts_item_without_ibis_ms(
+        self, session: AsyncSession
+    ) -> None:
+        """REQ-WATCH-HR-IBI-11 S02: an old client (no `ibis_ms` field)
+        still passes Pydantic validation. Backwards-compat: the
+        default is `None` and the field is not required.
+        """
+        path_pid = uuid4()
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="P-IBI-2",
+            raw_items=[_valid_item()],  # no ibis_ms
+        )
+        assert len(response.accepted_ids) == 1
+
+    async def test_upload_rejects_ibis_ms_out_of_range(
+        self, session: AsyncSession
+    ) -> None:
+        """Clamp guard: `ibis_ms` items must be in [1, 5000]. An item
+        with `ibis_ms=[8000]` is rejected individually (the
+        other valid items in the batch still go through).
+        """
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(),  # valid
+            _valid_item_with_ibis(ibis_ms=[8000]),  # out of range
+            _valid_item_with_ibis(),  # valid
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="P-IBI-3",
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 2
+        assert len(response.rejected) == 1
 
 
 # =========================================================================

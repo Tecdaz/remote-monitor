@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
 import com.remotemonitor.watch.api.Iso8601Timestamp
 import com.squareup.moshi.Json
 
@@ -29,11 +30,22 @@ import com.squareup.moshi.Json
  * `extra="forbid"` validation expects. Room ignores `@Json` (and any
  * other non-`@ColumnInfo` annotation) — the same precedent as
  * `BatchResponse` carrying `@Json` while sitting next to Room entities.
+ *
+ * **`ibis_ms` (REQ-WATCH-HR-IBI-10)**: the new `ibisMs: List<Long>?`
+ * column is persisted via [IbiListConverter], registered as a
+ * per-entity `@TypeConverters`. The converter stores the list as a
+ * JSON string (text affinity column) so the on-disk shape matches
+ * the wire shape (Moshi's default `List<Long>` -> JSON array of
+ * integers). End-to-end: a row with `ibisMs = [800L, 820L]` writes
+ * the column `"[800,820]"` and reads it back to the same list. The
+ * field is appended at the END of the parameter list with a default
+ * of `null` so existing call sites compile unchanged.
  */
 @Entity(
     tableName = "measurements",
     indices = [Index(value = ["timestamp"])],
 )
+@TypeConverters(IbiListConverter::class)
 data class MeasurementEntity(
     @PrimaryKey
     @ColumnInfo(name = "local_id")
@@ -49,4 +61,7 @@ data class MeasurementEntity(
     @ColumnInfo(name = "spo2_percent")
     @Json(name = "spo2_percent")
     val spo2Percent: Double?,
+    @ColumnInfo(name = "ibis_ms")
+    @Json(name = "ibis_ms")
+    val ibisMs: List<Long>? = null,
 )
