@@ -5,6 +5,18 @@ local backend, with or without ngrok. Targets the `watch-app` change
 (PRs #1, #2, #3 merged on `feat/watch-app-pr2`) and the `backend-api`
 change (PRs #1..#4b merged on `main`).
 
+> **Canonical way to start the full E2E test env:** use
+> [`scripts/start-test-e2e.sh`](../scripts/start-test-e2e.sh).
+> It wipes the backend DB, wipes the watch app state, re-grants runtime
+> permissions, and drives the onboarding UI to register a fresh patient —
+> in one command. If the watch is on the charger (ChargingAod overlay
+> active), it stops short of the UI automation and tells you to finish
+> manually, because non-system activities are killed by the AOD's
+> ActivityManager timeout.
+>
+> **Backend-only wipe:** [`scripts/start-test-stack.sh`](../scripts/start-test-stack.sh)
+> does the same DB wipe + migrate without touching the watch.
+
 ## 0. Prerequisites
 
 - Docker (Compose v2: `docker compose ...`)
@@ -16,38 +28,38 @@ change (PRs #1..#4b merged on `main`).
 - A free ngrok account (https://dashboard.ngrok.com/signup) if you want
   to test without WiFi
 
-## 1. Backend: docker compose + migrations
+## 1. Backend: `scripts/start-test-stack.sh` (wipe + up + migrate)
 
 ```bash
-# 1.1. Copy the env template
-cp backend/.env.test.example backend/.env.test
-# Edit backend/.env.test to set APP_PII_ENCRYPTION_KEY (any random
-# 32+ char string for local dev). Leave NGROK_AUTHTOKEN empty if
-# you don't have an ngrok account yet.
-
-# 1.2. docker-compose.yml already wires APP_PII_ENCRYPTION_KEY from
-# the host's backend/.env (not from .env.test). Symlink it:
-ln -sf .env.test backend/.env
-
-# 1.3. Bring up the stack
 cd /home/santiago/repos/remote-monitor
-docker compose up -d --build
-sleep 5
-docker compose ps
-# Both `backend-1` and `postgres-1` should show "Up" / "healthy".
 
-# 1.4. Smoke test
-curl -s http://127.0.0.1:8000/api/v1/readyz
-# Expected: {"status":"ready"}
+# One-time env setup (if you don't have backend/.env yet):
+cp backend/.env.test.example backend/.env.test
+ln -sf .env.test backend/.env
+# Edit backend/.env.test to set NGROK_AUTHTOKEN if you want ngrok-based testing.
 
-# 1.5. Run migrations (alembic is NOT auto-applied in the container;
-# the Dockerfile only installs the app source, not the migrations
-# folder. Run them from the host against the docker postgres).
-cd backend
-APP_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/remote_monitor" \
-  uv run alembic upgrade head
-# Expected: INFO  [alembic.runtime.migration] Running upgrade  -> a9754bb20edf, initial schema
+# Start (wipes the DB, brings up the stack, waits for healthy, migrates):
+./scripts/start-test-stack.sh
+# Confirm "Continue? [y/N]" with y.
+
+# Non-interactive (CI / scripts):
+./scripts/start-test-stack.sh -y
 ```
+
+What it does, in order:
+1. Verifies `backend/.env APP_PII_ENCRYPTION_KEY` matches the local-dev
+   sentinel. Aborts otherwise (so you never accidentally wipe a
+   production-looking env).
+2. `docker compose down -v` (wipes the postgres volume).
+3. `docker compose up -d --build`.
+4. Waits for `postgres` healthy (up to 30 s).
+5. Waits for backend `/api/v1/readyz` to return 200 (up to 30 s).
+6. Runs `alembic upgrade head` against the local postgres.
+
+> **Manual fallback** (if the script is unavailable): the equivalent
+> sequence is `docker compose down -v && docker compose up -d --build &&
+> sleep 5 && cd backend && APP_DATABASE_URL=... uv run alembic upgrade head`.
+> See git history for the pre-script version of this section.
 
 ## 2. ngrok tunnel (optional, but recommended for real-device testing)
 
