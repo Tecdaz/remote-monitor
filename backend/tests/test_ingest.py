@@ -482,6 +482,50 @@ class TestIngestService:
         assert len(response.accepted_ids) == 2
         assert len(response.rejected) == 1
 
+    async def test_upload_persists_ibis_ms_to_clinical_measurements(
+        self, session: AsyncSession
+    ) -> None:
+        """WU-2.11 RED — REQ-WATCH-HR-IBI-13 S01.
+
+        After a successful upload with ``ibis_ms=[800, 820]``, the
+        ``clinical.measurements.ibis_ms`` column must hold that list.
+        The assertion goes through a raw SQL query (independent of
+        the ORM) so the test fails loudly if the prod service drops
+        the field on the way down.
+        """
+        path_pid = uuid4()
+        local_id = uuid4()
+        items = [_valid_item_with_ibis(local_id, ibis_ms=[800, 820])]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="P-IBI-PERSIST",
+            raw_items=items,
+        )
+        assert response.accepted_ids == [local_id]
+        assert response.rejected == []
+
+        # Commit so the SELECT below sees the row in its own
+        # transaction. The session used by ``upload_measurements``
+        # already committed; we open a fresh connection for the
+        # introspection read.
+        await session.commit()
+
+        async with session.bind.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT ibis_ms FROM clinical.measurements "
+                    "WHERE patient_id = :pid AND local_id = :lid"
+                ),
+                {"pid": path_pid, "lid": local_id},
+            )
+            row = result.one_or_none()
+
+        assert row is not None, "row not found in clinical.measurements"
+        assert list(row.ibis_ms) == [800, 820], (
+            f"expected ibis_ms=[800, 820], got {list(row.ibis_ms)!r}"
+        )
+
 
 # =========================================================================
 # T3.3 — header enforcement + observability

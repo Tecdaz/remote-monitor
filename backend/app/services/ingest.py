@@ -197,6 +197,7 @@ async def upload_measurements(
                             "heart_rate_bpm": item.heart_rate_bpm,
                             "spo2_percent": item.spo2_percent,
                             "received_at": received_at,
+                            "ibis_ms": item.ibis_ms,
                         }
                         for i, item in enumerate(valid_items)
                     ]
@@ -245,6 +246,11 @@ async def upload_measurements(
                 else None
             ),
             "received_at": received_at.isoformat(),
+            "ibis_ms": (
+                list(first_item.ibis_ms)
+                if first_item.ibis_ms is not None
+                else None
+            ),
         }
         try:
             await manager.publish(
