@@ -43,9 +43,46 @@ class IdentityRepositoryImpl(
         context.identityDataStore.edit { it[KEY_PATIENT_ID] = value }
     }
 
-    /** Clear both fields (e.g. on operator-initiated re-pair). */
-    suspend fun clear() {
+    // wear-bed-picker-onboarding D23 + D24: bed-picker onboarding.
+    override suspend fun getBedNumber(): String? =
+        context.identityDataStore.data.map { it[KEY_BED_NUMBER] }.first()
+
+    /**
+     * Non-pairing writer for `KEY_BED_NUMBER`. The pairing flow does NOT
+     * call this; it goes through [persistPaired] so the three keys land
+     * atomically in a single `edit { }` block. Retained on the interface
+     * for non-pairing writes (e.g. tests pre-seeding the bed number without
+     * going through the full pairing flow).
+     */
+    override suspend fun setBedNumber(value: String) {
+        context.identityDataStore.edit { it[KEY_BED_NUMBER] = value }
+    }
+
+    /**
+     * wear-bed-picker-onboarding D24: ATOMIC batch write — the SINGLE
+     * pairing path. A successful `POST /api/v1/patients` resolves to
+     * (bedNumber, patientNumberCipher, patientId); persisting them across
+     * three sequential `edit { }` calls would re-create the half-paired
+     * window that CA-NEW-1 flagged (a process kill between the first and
+     * third write leaves the DataStore inconsistent). The single
+     * `edit { }` block is the only pairing write path.
+     */
+    override suspend fun persistPaired(
+        bedNumber: String,
+        patientNumberCipher: String,
+        patientId: String,
+    ) {
         context.identityDataStore.edit { prefs ->
+            prefs[KEY_BED_NUMBER] = bedNumber
+            prefs[KEY_PATIENT_NUMBER] = patientNumberCipher
+            prefs[KEY_PATIENT_ID] = patientId
+        }
+    }
+
+    /** Clear all three fields (e.g. on operator-initiated re-pair). */
+    override suspend fun clear() {
+        context.identityDataStore.edit { prefs ->
+            prefs.remove(KEY_BED_NUMBER)
             prefs.remove(KEY_PATIENT_NUMBER)
             prefs.remove(KEY_PATIENT_ID)
         }
@@ -54,6 +91,10 @@ class IdentityRepositoryImpl(
     private companion object {
         val KEY_PATIENT_NUMBER = stringPreferencesKey("patient_number")
         val KEY_PATIENT_ID = stringPreferencesKey("patient_id")
+        // wear-bed-picker-onboarding D4: the 1..5 bed number the watch is
+        // currently paired to. Persisted at pairing time alongside the
+        // patient_number ciphertext + patient id (see persistPaired).
+        val KEY_BED_NUMBER = stringPreferencesKey("bed_number")
     }
 }
 
