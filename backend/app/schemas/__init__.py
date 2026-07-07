@@ -6,6 +6,7 @@ fields are forbidden to keep the contract strict.
 """
 from __future__ import annotations
 
+from app.schemas.bed import BedSnapshot
 from app.schemas.common import MeasurementPage, Problem
 from app.schemas.measurement import (
     BatchResponse,
@@ -13,15 +14,16 @@ from app.schemas.measurement import (
     MeasurementBatch,
     RejectedMeasurement,
 )
-from app.schemas.patient import Patient, PatientRegistration
+from app.schemas.patient import Patient, RegisterPatientRequest
 
 __all__ = [
     "BatchResponse",
+    "BedSnapshot",
     "Measurement",
     "MeasurementBatch",
     "MeasurementPage",
     "Patient",
-    "PatientRegistration",
     "Problem",
+    "RegisterPatientRequest",
     "RejectedMeasurement",
 ]

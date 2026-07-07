@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, LargeBinary, String, func
+from sqlalchemy import Boolean, DateTime, LargeBinary, SmallInteger, String, func
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,6 +63,16 @@ class ClinicalPatient(Base):
         Boolean,
         nullable=False,
         server_default="true",
+    )
+    # REQ-SCHEMA-05 (sdd/wear-bed-picker-onboarding). NULL is permitted
+    # only while is_active=false (enforced by the migration's CHECK
+    # constraint ``ck_bed_number_required_when_active``). The partial
+    # UNIQUE index ``ux_clinical_patients_active_bed`` enforces "at
+    # most one active session per bed". A NOT NULL follow-up is a
+    # tracked debt item (sdd-archive §12.1).
+    bed_number: Mapped[int | None] = mapped_column(
+        SmallInteger,
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
