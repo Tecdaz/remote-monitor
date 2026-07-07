@@ -379,9 +379,10 @@ class TestEndToEnd:
         from app.ws.manager import manager
 
         patient_id = uuid4()
-        # Use a patient_number that's stable per test (so the
-        # auto-register path is exercised).
-        patient_number = f"P-{patient_id.hex[:8]}"
+        # Use a bed plaintext (1..5) for the X-Patient-Number header
+        # so the auto-register path mirrors it into bed_number and the
+        # CHECK constraint ``ck_bed_number_required_when_active`` passes.
+        patient_number = "1"
         local_id = uuid4()
 
         with TestClient(app) as client:
@@ -421,7 +422,7 @@ class TestEndToEnd:
         from app.main import app
 
         patient_id = uuid4()
-        patient_number = f"P-{patient_id.hex[:8]}"
+        patient_number = "1"
 
         with TestClient(app) as client:
             # No WS open.
@@ -447,7 +448,7 @@ class TestEndToEnd:
         from app.main import app
 
         patient_id = uuid4()
-        patient_number = f"P-{patient_id.hex[:8]}"
+        patient_number = "1"
         local_id = uuid4()
         item = _valid_measurement(local_id)
         item["ibis_ms"] = [800, 820]
@@ -530,7 +531,7 @@ class TestEndToEndSuite:
         from app.main import app
 
         patient_id = uuid4()
-        patient_number = f"P-{patient_id.hex[:8]}"
+        patient_number = "1"
 
         with TestClient(app) as client:
             # Open TWO WS to the same patient.
@@ -569,7 +570,7 @@ class TestEndToEndSuite:
 
         patient_a = uuid4()
         patient_b = uuid4()
-        number_b = f"P-{patient_b.hex[:8]}"
+        number_b = "2"
 
         with TestClient(app) as client:
             with client.websocket_connect(
@@ -679,7 +680,7 @@ class TestEndToEndSuite:
         from app.main import app
 
         patient_id = uuid4()
-        patient_number = f"P-{patient_id.hex[:8]}"
+        patient_number = "1"
 
         with TestClient(app) as client:
             # No WS open.
