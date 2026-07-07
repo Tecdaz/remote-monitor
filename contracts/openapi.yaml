@@ -27,15 +27,18 @@ paths:
     post:
       tags: [watch, admin]
       operationId: registerPatient
-      summary: Explicitly pre-register a patient (optional)
-      description: "Optional pre-registration. The watch usually auto-registers on the first `uploadMeasurements` (see `X-Patient-Number` auto-register behavior). Use this endpoint only when explicit pre-registration is required (e.g., admin onboarding before the watch arrives). 201 with assigned `patient_id`; 409 with `Problem` on duplicate."
+      summary: Register a patient against a selected bed
+      description: "The watch calls this after the operator selects a bed (1..5) on the bed picker. The patient_number ciphertext is no longer operator-typed — instead the backend derives it deterministically from `bed_number` via `pgp_sym_encrypt`. When `replace_active_session = true`, any active session on the same `bed_number` is atomically deactivated and a new session is created in the same transaction (per the partial UNIQUE index `ux_clinical_patients_active_bed` and the D16 `IntegrityError` mapping). When `replace_active_session = false` (default) and the bed is already active, the request is refused with `409 bed_now_occupied`. 503 with `Problem` if the database is degraded."
       security: []
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/PatientRegistration" } } }
+        content: { application/json: { schema: { $ref: "#/components/schemas/RegisterPatientRequest" } } }
       responses:
         "201": { description: Patient registered, content: { application/json: { schema: { $ref: "#/components/schemas/Patient" } } } }
-        "409": { description: Patient number already registered, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+        "409":
+          description: "Bed is already occupied (`code: \"bed_now_occupied\"`). Caller can retry by re-fetching the snapshot and either picking another bed or setting `replace_active_session: true` (atomic replace)."
+          content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } }
+        "503": { description: backend degraded, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
     get:
       tags: [frontend, admin]
       operationId: listPatients
@@ -70,6 +73,26 @@ paths:
       security: []
       responses:
         "501": { description: Not implemented, content: { application/json: { schema: { $ref: "#/components/schemas/Problem" } } } }
+  /api/v1/beds:
+    get:
+      tags: [watch, frontend, admin]
+      operationId: getBedSnapshot
+      summary: Per-bed occupancy snapshot
+      description: "Returns the live occupancy state of every bed in the hardcoded 1..5 range. PoC: the bed universe is fixed at five beds; no creation endpoint exists. `is_occupied = true` iff a row exists with `bed_number = N AND is_active = true` in `clinical.patients`. The snapshot is computed in a single SELECT (no N+1) and is consistent under concurrent updates per the partial UNIQUE index `ux_clinical_patients_active_bed`."
+      security: []
+      responses:
+        "200":
+          description: Five-bed occupancy snapshot (PoC, hardcoded 1..5)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BedSnapshotList"
+        "503":
+          description: backend degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/patients/{patient_id}/measurements:
     parameters: [{ $ref: "#/components/parameters/PatientIdPath" }]
     post:
@@ -178,19 +201,33 @@ components:
       required: [patient_id, patient_number, device_model, os_version, created_at, is_active]
       properties:
         patient_id:    { type: string, format: uuid, description: "Server-assigned opaque UUID. The only link from clinical records to PII." }
-        patient_number: { type: string, description: "PII — the operator-typed identifier (e.g. P-00042). Handle per HIPAA-like retention policy.", example: P-00042 }
+        patient_number: { type: string, description: "Encrypted bed number (PostgreSQL pgp_sym_encrypt of the bed number in 1..5). NOT an operator-typed identifier; do not display as plain text.", example: "MIIBiQYJKoZIhvcNAQDo+0D+lpNbQEDdHJlYXRlZEBrE1lMrQECREMwBQYDK2VwBCMQOlhLVDc4WnB1djVxTEhNSjFQcmZQTlpMNlVrQVhxY3NQNFhmN2tVS2tGM1VxSlhVSmkrRmhKN0FLb0o3SFd6RHhLdlJZRHJLZkx4c1Q3Z2VBQ0FvM2JrR0tuZUFIZlpPMU9wNkhRK09wcG9WM2d2bXF1TGIya3RCVVZtVGh1YVk4PQECMB2jTFPleV9bscAtxA99JeUQiEYD6v6+arT3qUUEAQH/" }
         device_model:  { type: string, description: "Watch hardware model.", example: Samsung Galaxy Watch 4 }
         os_version:    { type: string, description: "Watch OS version string.", example: "Wear OS 6 (API 36)" }
         created_at:    { type: string, format: date-time, description: "Server-assigned registration timestamp." }
         is_active:     { type: boolean, description: "Soft-delete flag. `false` means deactivated." }
-    PatientRegistration:
+    RegisterPatientRequest:
       type: object
-      description: "Payload for `POST /patients`. Omits server-assigned fields."
-      required: [patient_number, device_model, os_version]
+      description: "Payload for `POST /patients`. Replaces the free-form `patient_number` operator-typed identifier with `bed_number` in 1..5 (the watch's bed picker now emits this). `replace_active_session` opts into an atomic replace of any active session on the same bed; absent or `false` returns `409 bed_now_occupied` when the bed is currently active."
+      required: [bed_number, device_model, os_version]
       properties:
-        patient_number: { type: string, description: "PII — the operator-typed identifier.", example: P-00042 }
-        device_model:   { type: string, example: Samsung Galaxy Watch 4 }
-        os_version:     { type: string, example: "Wear OS 6 (API 36)" }
+        bed_number: { type: integer, minimum: 1, maximum: 5, description: "Selected bed in 1..5 (PoC hardcoded range).", examples: [3] }
+        device_model: { type: string, examples: ["samsung SM-R870"] }
+        os_version: { type: string, examples: ["16 (API 36)"] }
+        replace_active_session: { type: boolean, default: false, description: "When `true`, atomically deactivates the active session on the same bed and creates a new one. When `false` (default), the request is refused with `409 bed_now_occupied` if the bed is active." }
+    BedSnapshot:
+      type: object
+      required: [bed_number, is_occupied]
+      properties:
+        bed_number: { type: integer, minimum: 1, maximum: 5, description: "Bed number in 1..5 (PoC hardcoded range).", examples: [3] }
+        is_occupied: { type: boolean, description: "`true` iff a `clinical.patients` row exists with `bed_number = N AND is_active = true`." }
+        current_patient_id: { type: [string, "null"], format: uuid, description: "Opaque UUID of the active patient on this bed, or `null` when `is_occupied = false`." }
+    BedSnapshotList:
+      type: array
+      description: "Per-bed occupancy snapshot. Always length 5 (PoC hardcoded bed universe)."
+      items: { $ref: "#/components/schemas/BedSnapshot" }
+      minItems: 5
+      maxItems: 5
     MeasurementBatch:
       type: object
       description: "One measurement submitted by the watch. Either or both vital signs may be null if the sensor failed."
