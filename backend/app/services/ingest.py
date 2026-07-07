@@ -67,12 +67,19 @@ async def _resolve_patient(
     device_model: str,
     os_version: str,
 ) -> UUID:
-    """Find the patient by ``patient_number`` or auto-register.
+    """Find the active patient by ``patient_number`` or auto-register.
 
-    If the X-Patient-Number resolves to an existing ``PiiPatient`` row,
-    assert that its ``patient_id`` matches the path; otherwise raise
-    403. If the X-Patient-Number is unknown, register a new patient
-    using the path ``patient_id`` and the device headers.
+    If the X-Patient-Number resolves to an existing active
+    ``PiiPatient`` row (i.e. its matching ``clinical.patients`` row
+    has ``is_active = true``), assert that its ``patient_id`` matches
+    the path; otherwise raise 403. A decrypt-equal row whose clinical
+    row is ``is_active = false`` is treated as a miss (REQ-INGEST-08):
+    the prior session is a deactivated historical record and the
+    caller is treated as a new registration.
+
+    If the X-Patient-Number is unknown (or only matches a deactivated
+    row), register a new patient using the path ``patient_id`` and
+    the device headers.
 
     Implementation note: ``pgp_sym_encrypt`` is non-deterministic (it
     uses a random IV), so we cannot encrypt-and-compare. Instead the
@@ -85,8 +92,12 @@ async def _resolve_patient(
     existing_id = (
         await session.execute(
             text(
-                "SELECT patient_id FROM pii.patients "
-                "WHERE pgp_sym_decrypt(patient_number, :key) = :plain"
+                "SELECT pp.patient_id "
+                "FROM pii.patients pp "
+                "JOIN clinical.patients cp "
+                "  ON cp.patient_id = pp.patient_id "
+                "WHERE pgp_sym_decrypt(pp.patient_number, :key) = :plain "
+                "  AND cp.is_active = true"
             ),
             {"plain": patient_number, "key": settings.pii_encryption_key},
         )
@@ -105,9 +116,27 @@ async def _resolve_patient(
             )
         return existing_id
 
-    # First-time upload for this patient_number — auto-register in the
-    # same transaction. Use the path patient_id as the new patient_id
-    # so the watch's URL is meaningful.
+    # First-time upload for this patient_number (or post-deactivation
+    # re-pair) — auto-register in the same transaction. Use the path
+    # patient_id as the new patient_id so the watch's URL is
+    # meaningful.
+    #
+    # In the bed-picker world (REQ-INGEST-06), the
+    # X-Patient-Number header carries a bed plaintext "1".."5".
+    # Mirror that into ``bed_number`` so the CHECK constraint
+    # ``ck_bed_number_required_when_active`` passes for the new
+    # active row. If the plaintext does not parse to a 1..5
+    # integer (legacy non-numeric fixtures or malformed input),
+    # leave bed_number NULL — that row is only allowed to be
+    # created via the dedicated POST /patients path which validates
+    # the range in Pydantic.
+    try:
+        parsed_bed = int(patient_number)
+    except (TypeError, ValueError):
+        parsed_bed = None
+    bed_for_row: int | None = (
+        parsed_bed if parsed_bed is not None and 1 <= parsed_bed <= 5 else None
+    )
     cipher = await encrypt_patient_number(session, patient_number)
     await session.execute(
         pg_insert(PiiPatient).values(
@@ -120,6 +149,7 @@ async def _resolve_patient(
             patient_id=path_patient_id,
             device_model=device_model,
             os_version=os_version,
+            bed_number=bed_for_row,
         )
     )
     return path_patient_id
