@@ -85,7 +85,7 @@ class TestIngestService:
         response = await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00001",
+            patient_number="1",
             raw_items=items,
         )
         assert isinstance(response, BatchResponse)
@@ -101,7 +101,7 @@ class TestIngestService:
         await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00002",
+            patient_number="2",
             raw_items=items,
         )
 
@@ -131,7 +131,7 @@ class TestIngestService:
         response = await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00003",
+            patient_number="3",
             raw_items=items,
         )
         assert len(response.accepted_ids) == 2
@@ -159,7 +159,7 @@ class TestIngestService:
                 await upload_measurements(
                     session,
                     path_patient_id=path_pid,
-                    patient_number="P-00004",
+                    patient_number="4",
                     raw_items=items,
                 )
 
@@ -205,7 +205,7 @@ class TestIngestService:
         first = await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00005",
+            patient_number="5",
             raw_items=items,
         )
         assert sorted(first.accepted_ids) == sorted([local_a, local_b, local_c])
@@ -214,7 +214,7 @@ class TestIngestService:
         second = await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00005",
+            patient_number="5",
             raw_items=items,
         )
         assert sorted(second.accepted_ids) == sorted([local_a, local_b, local_c])
@@ -242,7 +242,7 @@ class TestIngestService:
         await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00006",
+            patient_number="1",
             raw_items=items,
             device_model="Samsung Galaxy Watch 4",
             os_version="Wear OS 6 (API 36)",
@@ -255,7 +255,7 @@ class TestIngestService:
         ).scalar_one()
         # The stored value is the ciphertext, not the plaintext.
         assert isinstance(pii.patient_number, bytes)
-        assert pii.patient_number != b"P-00006"
+        assert pii.patient_number != b"1"
 
         clinical = (
             await session.execute(
@@ -277,7 +277,7 @@ class TestIngestService:
         await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00007",
+            patient_number="2",
             raw_items=items,
         )
         clinical = (
@@ -301,7 +301,7 @@ class TestIngestService:
         await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00008",
+            patient_number="3",
             raw_items=first_items,
             device_model="Pixel Watch",
             os_version="Wear OS 5",
@@ -328,7 +328,7 @@ class TestIngestService:
         await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00008",
+            patient_number="3",
             raw_items=second_items,
             device_model="ShouldNotStick",
             os_version="ShouldNotStick",
@@ -385,7 +385,7 @@ class TestIngestService:
         await upload_measurements(
             session,
             path_patient_id=pid_a,
-            patient_number="P-00009",
+            patient_number="4",
             raw_items=[_valid_item()],
         )
 
@@ -398,7 +398,7 @@ class TestIngestService:
             await upload_measurements(
                 session,
                 path_patient_id=pid_b,
-                patient_number="P-00009",
+                patient_number="4",
                 raw_items=[_valid_item()],
             )
         assert exc.value.status_code == 403
@@ -413,7 +413,7 @@ class TestIngestService:
         await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-00010",
+            patient_number="5",
             raw_items=[_valid_item(lid1), _valid_item(lid2)],
         )
         audit = (
@@ -438,7 +438,7 @@ class TestIngestService:
         response = await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-IBI-1",
+            patient_number="1",
             raw_items=[_valid_item_with_ibis()],
         )
         assert len(response.accepted_ids) == 1
@@ -455,7 +455,7 @@ class TestIngestService:
         response = await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-IBI-2",
+            patient_number="2",
             raw_items=[_valid_item()],  # no ibis_ms
         )
         assert len(response.accepted_ids) == 1
@@ -476,7 +476,7 @@ class TestIngestService:
         response = await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-IBI-3",
+            patient_number="3",
             raw_items=items,
         )
         assert len(response.accepted_ids) == 2
@@ -499,7 +499,7 @@ class TestIngestService:
         response = await upload_measurements(
             session,
             path_patient_id=path_pid,
-            patient_number="P-IBI-PERSIST",
+            patient_number="4",
             raw_items=items,
         )
         assert response.accepted_ids == [local_id]
@@ -566,8 +566,8 @@ class TestHeaderEnforcement:
         """X-Patient-Number present -> returns the value verbatim."""
         from app.dependencies import require_patient_number_header
 
-        result = await require_patient_number_header(x_patient_number="P-00042")
-        assert result == "P-00042"
+        result = await require_patient_number_header(x_patient_number="1")
+        assert result == "1"
 
     @staticmethod
     def _install_recording_logger() -> list[dict]:
@@ -745,7 +745,7 @@ class TestMeasurementsRouter:
         response = await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=_batch_items(1000),
-            headers={"X-Patient-Number": "P-BATCH-1"},
+            headers={"X-Patient-Number": "1"},
         )
         assert response.status_code == 200
         body = response.json()
@@ -760,7 +760,7 @@ class TestMeasurementsRouter:
         response = await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=_batch_items(1001),
-            headers={"X-Patient-Number": "P-BATCH-2"},
+            headers={"X-Patient-Number": "2"},
         )
         assert response.status_code == 413
         assert response.json()["detail"]["code"] == "batch_too_large"
@@ -773,7 +773,7 @@ class TestMeasurementsRouter:
         response = await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=[],
-            headers={"X-Patient-Number": "P-BATCH-3"},
+            headers={"X-Patient-Number": "3"},
         )
         assert response.status_code == 400
         assert response.json()["detail"]["code"] == "empty_batch"
@@ -794,12 +794,12 @@ class TestMeasurementsRouter:
         self, client: AsyncClient
     ) -> None:
         """REQ-INGEST-06: path != resolved patient_id -> 403."""
-        # Register patient with patient_number P-MISMATCH.
+        # Register patient on bed 1.
         pid_a = uuid4()
         await client.post(
             f"/api/v1/patients/{pid_a}/measurements",
             json=_batch_items(1),
-            headers={"X-Patient-Number": "P-MISMATCH"},
+            headers={"X-Patient-Number": "1"},
         )
         # Now POST again with the same X-Patient-Number but a different
         # path patient_id.
@@ -807,7 +807,7 @@ class TestMeasurementsRouter:
         response = await client.post(
             f"/api/v1/patients/{pid_b}/measurements",
             json=_batch_items(1),
-            headers={"X-Patient-Number": "P-MISMATCH"},
+            headers={"X-Patient-Number": "1"},
         )
         assert response.status_code == 403
         assert response.json()["detail"]["code"] == "patient_number_mismatch"
@@ -821,7 +821,7 @@ class TestMeasurementsRouter:
             f"/api/v1/patients/{path_pid}/measurements",
             json=_batch_items(2),
             headers={
-                "X-Patient-Number": "P-NEW",
+                "X-Patient-Number": "2",
                 "X-Device-Model": "Samsung Galaxy Watch 4",
                 "X-OS-Version": "Wear OS 6 (API 36)",
             },
@@ -844,7 +844,7 @@ class TestMeasurementsRouter:
         response = await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=items,
-            headers={"X-Patient-Number": "P-MIXED"},
+            headers={"X-Patient-Number": "3"},
         )
         assert response.status_code == 200
         body = response.json()
@@ -868,11 +868,11 @@ class TestMeasurementsRouter:
     ) -> None:
         """REQ-READ-01: measurements sorted by timestamp DESC."""
         path_pid = uuid4()
-        # First auto-register the patient with a small batch.
+        # First auto-register the patient on bed 1 with a small batch.
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=_batch_items(5),
-            headers={"X-Patient-Number": "P-LIST-1"},
+            headers={"X-Patient-Number": "1"},
         )
         response = await client.get(
             f"/api/v1/patients/{path_pid}/measurements"
@@ -899,7 +899,7 @@ class TestMeasurementsRouter:
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=items,
-            headers={"X-Patient-Number": "P-PAGE"},
+            headers={"X-Patient-Number": "2"},
         )
 
         # Page 1: limit=100.
@@ -946,12 +946,12 @@ class TestMeasurementsRouter:
         r1 = await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=items,
-            headers={"X-Patient-Number": "P-IDEMP"},
+            headers={"X-Patient-Number": "3"},
         )
         r2 = await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=items,
-            headers={"X-Patient-Number": "P-IDEMP"},
+            headers={"X-Patient-Number": "3"},
         )
         assert r1.status_code == 200
         assert r2.status_code == 200
@@ -975,7 +975,7 @@ class TestMeasurementsRouter:
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=_batch_items(5),
-            headers={"X-Patient-Number": "P-RANGE"},
+            headers={"X-Patient-Number": "1"},
         )
         # All items have the same timestamp in the fixture, so the
         # window must include that timestamp to return any items.
@@ -997,7 +997,7 @@ class TestMeasurementsRouter:
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=_batch_items(3),
-            headers={"X-Patient-Number": "P-RANGE-EMPTY"},
+            headers={"X-Patient-Number": "2"},
         )
         response = await client.get(
             f"/api/v1/patients/{path_pid}/measurements",
@@ -1014,7 +1014,7 @@ class TestMeasurementsRouter:
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=_batch_items(1),
-            headers={"X-Patient-Number": "P-RANGE-INV"},
+            headers={"X-Patient-Number": "3"},
         )
         response = await client.get(
             f"/api/v1/patients/{path_pid}/measurements",
@@ -1032,7 +1032,7 @@ class TestMeasurementsRouter:
         post = await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
             json=_batch_items(2),
-            headers={"X-Patient-Number": "P-SINGLE"},
+            headers={"X-Patient-Number": "4"},
         )
         # Pull the list to get the server-assigned IDs.
         listed = await client.get(
