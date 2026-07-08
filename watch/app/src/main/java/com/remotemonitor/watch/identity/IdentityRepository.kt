@@ -1,5 +1,7 @@
 package com.remotemonitor.watch.identity
 
+import kotlinx.coroutines.flow.Flow
+
 /**
  * Identity repository (REQ-WATCH-04, REQ-WATCH-10, REQ-WATCH-20).
  *
@@ -29,6 +31,19 @@ interface IdentityRepository {
     // wipe identity without downcasting.
     suspend fun getBedNumber(): String?
     suspend fun setBedNumber(value: String)
+
+    /**
+     * wear-ui-guidelines D10: additive cold [Flow] over `KEY_BED_NUMBER`.
+     *
+     * Re-emits whenever the underlying DataStore value changes, so the
+     * home vitals Flow can surface the paired bed reactively without a
+     * one-shot `getBedNumber()` read on every subscription. This is
+     * strictly ADDITIVE — the D24 atomic [persistPaired] batch write is
+     * the ONLY pairing write path and stays untouched; `observeBedNumber`
+     * only observes.
+     */
+    fun observeBedNumber(): Flow<String?>
+
     suspend fun persistPaired(
         bedNumber: String,
         patientNumberCipher: String,
