@@ -19,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -31,6 +30,8 @@ import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text as WearText
 import com.remotemonitor.watch.R
 import com.remotemonitor.watch.api.BedSnapshot
+import com.remotemonitor.watch.ui.theme.BED_FREE_COLOR
+import com.remotemonitor.watch.ui.theme.BED_OCCUPIED_COLOR
 
 /**
  * Bed-picker carousel screen (T-WATCH-34, REQ-WATCH-17, REQ-WATCH-34,
@@ -170,8 +171,5 @@ private fun BedPage(
     }
 }
 
-// Wear-friendly saturated colors. Compose Material3's primary palette
-// is too neutral for the status cue — we use fixed hues so the
-// red/green contrast stays consistent across themes.
-private val BED_OCCUPIED_COLOR = Color(0xFFB00020)
-private val BED_FREE_COLOR = Color(0xFF2E7D32)
+// BED_OCCUPIED_COLOR + BED_FREE_COLOR moved to ui/theme/BedStatusColors.kt
+// (wear-ui-guidelines PR-1 task 2.1.2).
