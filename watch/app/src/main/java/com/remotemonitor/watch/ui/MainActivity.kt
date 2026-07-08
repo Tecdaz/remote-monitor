@@ -95,12 +95,20 @@ private fun WatchNavHost(app: WatchApplication, startDestination: String) {
         composable("onboarding") {
             val viewModel = remember { app.onboardingViewModelFactory() }
             val state by viewModel.state.collectAsStateWithLifecycle()
+            // wear-bed-picker-onboarding D33: snapshot fetch fires from
+            // LaunchedEffect(Unit) on the screen lifetime (NOT from VM
+            // init). One fetch per screen visit.
+            LaunchedEffect(Unit) { viewModel.loadSnapshot() }
             OnboardingScreen(
-                patientNumber = state.patientNumber,
+                snapshot = state.snapshot,
+                snapshotState = state.snapshotState,
                 error = state.error,
                 isSubmitting = state.isSubmitting,
-                onValueChange = viewModel::onPatientNumberChange,
-                onSubmit = viewModel::onSubmit,
+                dialog = state.dialog,
+                onBedSelected = viewModel::onBedSelected,
+                onSnapshotRetry = viewModel::loadSnapshot,
+                onDialogAceptar = viewModel::onDialogAccept,
+                onDialogCancelar = viewModel::onDialogCancel,
             )
             LaunchedEffect(Unit) {
                 viewModel.events.collect { event ->
