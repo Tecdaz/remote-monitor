@@ -4,10 +4,15 @@
     <string name="sync_notification_text">Monitoring patient</string>
 
     <!--
-        wear-bed-picker-onboarding D7: English fallback keys for the
-        bed-picker onboarding dialog. The Spanish translations live in
-        `values-es/strings.xml`. PR-3c owns the `home_*` / `action_repair`
-        keys — do NOT add them here.
+        wear-bed-picker-onboarding D7 + D25 + WB-5: English fallback keys
+        for the bed-picker onboarding dialog. The Spanish translations
+        live in `values-es/strings.xml`. The `home_*` / `action_repair`
+        keys are owned by PR-3c (T3.13) and follow the locked format-arg
+        discipline from §11.4 of design-files #425:
+          * `home_bed_label`   uses positional `%1$d`.
+          * `home_status_label` uses `%1$d` and `%2$d` positionally.
+        Tests assert via `context.getString(R.string.home_bed_label, 3)`
+        == "Bed 3" — NOT a hardcoded literal.
     -->
     <string name="onboarding_title">Select a bed</string>
     <string name="onboarding_section_label">Select the bed for this device</string>
@@ -21,4 +26,7 @@
     <string name="error_post_failed">Failed to register the bed. Please try again.</string>
     <string name="error_snapshot_failed">Failed to load bed status. Tap Retry.</string>
     <string name="action_retry">Retry</string>
+    <string name="home_bed_label">Bed %1$d</string>
+    <string name="home_status_label">Bed %1$d · %2$d pending uploads</string>
+    <string name="action_repair">Re-pair</string>
 </resources>
