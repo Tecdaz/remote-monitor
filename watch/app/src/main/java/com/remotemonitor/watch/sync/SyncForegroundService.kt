@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import androidx.core.app.NotificationCompat
 import com.remotemonitor.watch.R
 import com.remotemonitor.watch.WatchApplication
 import com.remotemonitor.watch.ui.MainActivity
@@ -38,6 +39,10 @@ import kotlinx.coroutines.launch
  *   after a process kill, preserving any pending Room rows (the
  *   worker re-reads them on the next `selectPending(1000)`).
  *
+ * FGS hard constraints (unchanged by PR-4): `foregroundServiceType =
+ * "health"`, channel id = `sync`, `exported = false` in
+ * AndroidManifest.xml.
+ *
  * Wiring: the [BatchUploadWorker] is provided by [WatchApplication.worker]
  * (ServiceLocator pattern). Identity, device info, and DAO are all
  * constructed in `WatchApplication.onCreate()` and reused here.
@@ -50,7 +55,15 @@ class SyncForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(NOTIFICATION_ID, buildNotification(persistentlyShown = true))
+        // wear-ui-guidelines D5: the FGS body is now bed-aware. The
+        // bed number is read from the identity repository (DataStore)
+        // on a `Dispatchers.Default` coroutine so the main thread is
+        // not blocked. The `currentBedNumber()` call is suspending and
+        // resolves in microseconds once the DataStore is warm.
+        scope.launch {
+            val bedNumber = currentBedNumber()
+            startForeground(NOTIFICATION_ID, buildNotification(persistentlyShown = true, bedNumber = bedNumber))
+        }
         startSyncLoop()
     }
 
@@ -89,14 +102,42 @@ class SyncForegroundService : Service() {
         }
     }
 
-    private fun buildNotification(persistentlyShown: Boolean): Notification {
+    /**
+     * Resolves the currently paired bed number via the application
+     * service locator. The DataStore read is fast (cached in
+     * memory after the first emission per process), so a direct
+     * suspending call on the [Dispatchers.Default] service scope is
+     * safe — NO `runBlocking` on the main thread.
+     */
+    private suspend fun currentBedNumber(): String? {
+        val app = applicationContext as WatchApplication
+        return app.identityRepository.getBedNumber()
+    }
+
+    /**
+     * Builds the FGS notification. wear-ui-guidelines D5 (spec
+     * #448 cap 2): the FGS title + body are now locale-resolved via
+     * `sync_notification_title` + `sync_bed_body_format`. The
+     * latter takes the bed number from [currentBedNumber] as a
+     * format-arg; when the bed is unpaired (null) the slot falls
+     * back to the em-dash placeholder so the FGS still shows a
+     * valid body.
+     *
+     * The builder is migrated to [NotificationCompat.Builder]
+     * (AndroidX) so it can be reused verbatim by the
+     * `OngoingActivity.Builder` constructor in PR-4 commit 4
+     * (wear-ui-guidelines D7).
+     */
+    private fun buildNotification(
+        persistentlyShown: Boolean,
+        bedNumber: String? = null,
+    ): Notification = buildNotificationBuilder(persistentlyShown, bedNumber).build()
+
+    private fun buildNotificationBuilder(
+        persistentlyShown: Boolean,
+        bedNumber: String?,
+    ): NotificationCompat.Builder {
         ensureChannel(this)
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
         val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
@@ -106,13 +147,14 @@ class SyncForegroundService : Service() {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val contentIntent = PendingIntent.getActivity(this, 0, launchIntent, pendingFlags)
-        return builder
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(R.string.sync_notification_text))
+        val title = getString(R.string.sync_notification_title)
+        val body = getString(R.string.sync_bed_body_format, bedNumber ?: "—")
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(body)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(persistentlyShown)
             .setContentIntent(contentIntent)
-            .build()
     }
 
     private fun ensureChannel(context: Context) {
