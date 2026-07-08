@@ -59,7 +59,11 @@ fun RepairRequiredScreen(
             .testTag("repair-required-screen"),
     ) {
         WearText(
-            text = stringResource(R.string.action_repair),
+            // wear-bed-picker-onboarding-warnings WARN-005: dedicated
+            // title copy. Previously reused `action_repair` ("Re-pair")
+            // — the button label — as the title, which read confusingly
+            // for operators on the first-screen re-pair prompt.
+            text = stringResource(R.string.repair_required_title),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center,
@@ -68,7 +72,11 @@ fun RepairRequiredScreen(
                 .testTag("repair-title"),
         )
         WearText(
-            text = stringResource(R.string.dialog_occupied_body),
+            // wear-bed-picker-onboarding-warnings WARN-005: dedicated
+            // body copy. Previously reused `dialog_occupied_body` — a
+            // tap-confirmation flow description that misread on the
+            // re-pair prompt as "you already selected something".
+            text = stringResource(R.string.repair_required_body),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
