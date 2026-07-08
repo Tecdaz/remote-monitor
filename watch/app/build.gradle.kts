@@ -141,6 +141,13 @@ dependencies {
     // Wear variant. Pulls in `navigation-runtime` transitively, keeping
     // `NavHostController` + `rememberNavController` resolvable.
     implementation(libs.wear.compose.navigation)
+    // wear-ui-guidelines PR-4 (D2): pair the FGS notification with a Wear
+    // OngoingActivity so the watch-face shows a heart icon + sync status
+    // while the watch is syncing (spec #448 cap 5). The
+    // `OngoingActivity.Builder` ctor requires `NotificationCompat.Builder`,
+    // so the FGS builder is migrated to the AndroidX variant in
+    // `SyncForegroundService.buildNotification`.
+    implementation(libs.wear.ongoing)
 
     // Room (T-WATCH-18). The Room artifacts are versioned explicitly in the
     // version catalog (`room = "2.7.2"`) because no `androidx.room:room-bom`

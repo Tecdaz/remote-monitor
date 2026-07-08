@@ -39,6 +39,14 @@ lifecycle = "2.8.7"
 # extension and `popUpTo(...)` calls in `MainActivity.kt` keep working
 # verbatim.
 wearComposeNavigation = "1.3.0"
+# wear-ui-guidelines PR-4 (D2): Wear Ongoing Activity artifact. Pinned to
+# 1.1.0 (GA stable on Google Maven per Context7). Pairs an OngoingActivity
+# with the FGS notification so the watch-face shows a heart icon + sync
+# status while the watch is syncing measurements. Note: the
+# `OngoingActivity.Builder` constructor accepts `NotificationCompat.Builder`
+# (NOT the framework `Notification.Builder`), so the FGS notification
+# builder is migrated to the AndroidX variant in PR-4.
+wearOngoing = "1.1.0"
 # T-WATCH-18: Room is versioned explicitly. There is no `androidx.room:room-bom`
 # on Google Maven (only on Maven Central, but the AGP repo doesn't host it);
 # the Room artifacts are versioned individually. 2.7.x is the line that
@@ -97,6 +105,12 @@ lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-
 # `navigation-runtime`, which keeps `NavHostController` + `rememberNavController`
 # resolving so `MainActivity.kt`'s imports survive.
 wear-compose-navigation = { group = "androidx.wear.compose", name = "compose-navigation", version.ref = "wearComposeNavigation" }
+# wear-ui-guidelines PR-4 (D2): pairs an OngoingActivity with the FGS
+# notification (spec #448 cap 5). 1.1.0 ships the public
+# `OngoingActivity.Builder` + `OngoingActivity.apply(Context)` API; the
+# `Status.Builder().addTemplate(CharSequence)` API is the source for the
+# watch-face status text.
+wear-ongoing = { group = "androidx.wear", name = "wear-ongoing", version.ref = "wearOngoing" }
 
 # Room (T-WATCH-18). Each entry is versioned explicitly because there is
 # no `androidx.room:room-bom` on Google Maven — Room is published as
