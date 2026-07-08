@@ -28,3 +28,6 @@ build/
 
 # Coverage
 .coverage
+# Local AI runtime state
+.atl/
+.playwright-mcp
