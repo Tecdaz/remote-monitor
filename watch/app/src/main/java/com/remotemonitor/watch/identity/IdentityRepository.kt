@@ -19,4 +19,20 @@ interface IdentityRepository {
     suspend fun getPatientId(): String?
     suspend fun setPatientNumber(value: String)
     suspend fun setPatientId(value: String)
+
+    // wear-bed-picker-onboarding D23 + D24: bed-picker onboarding introduces
+    // a third persisted field (the 1..5 bed number) and an atomic
+    // batch-write path so a successful `POST /api/v1/patients` cannot leave
+    // the DataStore half-paired (two keys written, third missing) on a
+    // subsequent process kill. `clear()` is promoted from the Impl so
+    // callers (e.g. RepairRequiredScreen, future factory-reset flows) can
+    // wipe identity without downcasting.
+    suspend fun getBedNumber(): String?
+    suspend fun setBedNumber(value: String)
+    suspend fun persistPaired(
+        bedNumber: String,
+        patientNumberCipher: String,
+        patientId: String,
+    )
+    suspend fun clear()
 }
