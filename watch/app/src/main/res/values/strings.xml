@@ -29,4 +29,15 @@
     <string name="home_bed_label">Bed %1$d</string>
     <string name="home_status_label">Bed %1$d · %2$d pending uploads</string>
     <string name="action_repair">Re-pair</string>
+
+    <!--
+        wear-bed-picker-onboarding-warnings WARN-005: dedicated copy for
+        RepairRequiredScreen. Previously the screen reused `action_repair`
+        as its title and `dialog_occupied_body` as its body, which
+        described a tap-confirmation flow on the first-screen re-pair
+        prompt — confusing the operator. The button keeps
+        `action_repair` because that IS the action label.
+    -->
+    <string name="repair_required_title">Re-pair required</string>
+    <string name="repair_required_body">Your device is paired to an old patient number. Tap Re-pair to assign it to a bed.</string>
 </resources>

@@ -27,4 +27,14 @@
     <string name="home_bed_label">Cama %1$d</string>
     <string name="home_status_label">Cama %1$d · %2$d subidas pendientes</string>
     <string name="action_repair">Re-emparejar</string>
+
+    <!--
+        wear-bed-picker-onboarding-warnings WARN-005: Spanish copy for
+        RepairRequiredScreen. Mirrors the new `repair_required_title`
+        and `repair_required_body` English keys. Locked Spanish text
+        per #437; awaiting clinical sign-off per §12.1 carry-over
+        (tracked in the bed-replace runbook, PR-4 #19).
+    -->
+    <string name="repair_required_title">Se requiere re-emparejamiento</string>
+    <string name="repair_required_body">Tu dispositivo está emparejado a un número de paciente anterior. Toca Re-emparejar para asignarlo a una cama.</string>
 </resources>
