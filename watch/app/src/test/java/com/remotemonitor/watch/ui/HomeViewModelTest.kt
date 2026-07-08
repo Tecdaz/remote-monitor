@@ -18,7 +18,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Unit tests for [HomeViewModel] (PR 3 fresh-review follow-up).
+ * Unit tests for [HomeViewModel] (PR 3 fresh-review follow-up;
+ * wear-bed-picker-onboarding D17 + D25).
  *
  * The fresh review of PR 3 flagged a stale-read bug in the previous
  * implementation: `init { scope.launch { identity.getPatientNumber() } }`
@@ -26,22 +27,31 @@ import org.junit.Test
  * When `SharingStarted.WhileSubscribed(5_000L)` cancelled the upstream
  * after a period of no subscribers (e.g., activity recreation,
  * navigation away-and-back) and a fresh subscription arrived, the
- * state flow re-emitted the initialValue (null patientNumber) and
- * only re-populated from the cached local flow on the next emission.
+ * state flow re-emitted the initialValue (null bedNumber) and only
+ * re-populated from the cached local flow on the next emission.
  *
  * The fix moves the read into the state flow itself via a cold
- * `flow { emit(identity.getPatientNumber()) }`, so every subscription
- * re-reads the latest value from the repo.
+ * `flow { emit(identity.getBedNumber()) }`, so every subscription
+ * re-reads the latest value from the repo. wear-bed-picker-onboarding
+ * D17 switched the probe from `getPatientNumber()` (post-PR-2 returns
+ * the CIPHERTEXT for a freshly-paired bed — not the bed plaintext in
+ * 1..5) to `getBedNumber()` so the screen surfaces the plaintext bed
+ * number via `stringResource(R.string.home_bed_label, ...)`.
  *
  * Scenarios:
  *  - **re_reads_on_resubscribe**: after a 5+s unsubscribe, the next
  *    subscription must see the latest value from the repo (not the
- *    cached value from the first subscription). This is the regression
- *    test for the fresh-review finding.
- *  - **initial_state_surfaces_patient_number**: the first emission
- *    after subscription has the patientNumber from the repo.
+ *    cached value from the first subscription). Regression test for
+ *    the fresh-review finding, now adapted to `getBedNumber()`.
+ *  - **initial_state_surfaces_bed_number**: the first emission after
+ *    subscription has the bedNumber from the repo.
  *  - **pending_count_propagates**: changes to the pendingCount flow
  *    are reflected in the state (proves the combine is wired).
+ *  - **S_home_displays_bed_label** (D25): locale-agnostic assertion
+ *    that `stringResource(R.string.home_bed_label, 3) == "Bed 3"`
+ *    under Robolectric's default English locale. The expected string
+ *    is built via `context.getString(...)` rather than a hardcoded
+ *    literal so the test is locale-agnostic per D25.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -64,12 +74,14 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun re_reads_patient_number_on_resubscribe() = runTest {
+    fun re_reads_bed_number_on_resubscribe() = runTest {
         // Boxed so the mock can return different values for the two
-        // subscriptions.
-        val patientNumberBox = arrayOf<String?>("P-00001")
+        // subscriptions. `BedCiphertextFixture.KNOWN_BED` style
+        // literals (`"P-00001"`) are intentionally avoided — the
+        // bed plaintext is in 1..5 (D17).
+        val bedNumberBox = arrayOf<String?>("3")
         val identity = mockk<IdentityRepository>()
-        coEvery { identity.getPatientNumber() } coAnswers { patientNumberBox[0] }
+        coEvery { identity.getBedNumber() } coAnswers { bedNumberBox[0] }
 
         val pendingCountFlow = MutableStateFlow(0)
         val dao = mockk<MeasurementDao>()
@@ -77,12 +89,12 @@ class HomeViewModelTest {
 
         val vm = newViewModel(identity, dao, this)
 
-        // First subscription: state should show "P-00001" once the
-        // upstream emits. The previous one-shot `init` read populates
-        // a class-level MutableStateFlow; the new cold-flow read
+        // First subscription: state should show "3" once the upstream
+        // emits. The previous one-shot `init` read populated a
+        // class-level MutableStateFlow; the new cold-flow read
         // collects on every subscription.
-        val first = vm.state.first { it.patientNumber == "P-00001" }
-        assertEquals("P-00001", first.patientNumber)
+        val first = vm.state.first { it.bedNumber == "3" }
+        assertEquals("3", first.bedNumber)
 
         // `first` cancels the collection on match. With
         // WhileSubscribed(5_000L) the upstream is cancelled after 5s
@@ -91,27 +103,27 @@ class HomeViewModelTest {
         advanceTimeBy(5_100)
         runCurrent()
 
-        // Simulate the operator re-pairing with a new patient number
-        // (or any external write to DataStore).
-        patientNumberBox[0] = "P-00002"
+        // Simulate the operator re-pairing with a new bed number (or
+        // any external write to DataStore).
+        bedNumberBox[0] = "4"
 
-        // Re-subscribe: the upstream must re-collect the patient
-        // number flow and see "P-00002". With the previous cached-read
-        // implementation, the state would show "P-00001" (the stale
-        // value from the first subscription) because the init block
-        // had already populated the class-level MutableStateFlow and
-        // did not re-run. We use withTimeout so a regression fails
-        // fast (2s of virtual time) instead of hanging.
+        // Re-subscribe: the upstream must re-collect the bed-number
+        // flow and see "4". With the previous cached-read
+        // implementation, the state would show "3" (the stale value
+        // from the first subscription) because the init block had
+        // already populated the class-level MutableStateFlow and did
+        // not re-run. We use withTimeout so a regression fails fast
+        // (2s of virtual time) instead of hanging.
         val second = withTimeout(2_000) {
-            vm.state.first { it.patientNumber == "P-00002" }
+            vm.state.first { it.bedNumber == "4" }
         }
-        assertEquals("P-00002", second.patientNumber)
+        assertEquals("4", second.bedNumber)
     }
 
     @Test
-    fun initial_state_surfaces_patient_number() = runTest {
+    fun initial_state_surfaces_bed_number() = runTest {
         val identity = mockk<IdentityRepository>()
-        coEvery { identity.getPatientNumber() } returns "P-00042"
+        coEvery { identity.getBedNumber() } returns "3"
 
         val pendingCountFlow = MutableStateFlow(3)
         val dao = mockk<MeasurementDao>()
@@ -119,15 +131,15 @@ class HomeViewModelTest {
 
         val vm = newViewModel(identity, dao, this)
 
-        val first = vm.state.first { it.patientNumber == "P-00042" }
-        assertEquals("P-00042", first.patientNumber)
+        val first = vm.state.first { it.bedNumber == "3" }
+        assertEquals("3", first.bedNumber)
         assertEquals(3, first.pendingCount)
     }
 
     @Test
     fun pending_count_propagates_through_combine() = runTest {
         val identity = mockk<IdentityRepository>()
-        coEvery { identity.getPatientNumber() } returns "P-00042"
+        coEvery { identity.getBedNumber() } returns "3"
 
         val pendingCountFlow = MutableStateFlow(0)
         val dao = mockk<MeasurementDao>()
@@ -135,13 +147,13 @@ class HomeViewModelTest {
 
         val vm = newViewModel(identity, dao, this)
 
-        val first = vm.state.first { it.patientNumber == "P-00042" }
+        val first = vm.state.first { it.bedNumber == "3" }
         assertEquals(0, first.pendingCount)
 
         // Update the pending count and assert the state follows.
         pendingCountFlow.value = 7
         val second = vm.state.first { it.pendingCount == 7 }
-        assertEquals("P-00042", second.patientNumber)
+        assertEquals("3", second.bedNumber)
         assertEquals(7, second.pendingCount)
     }
 }

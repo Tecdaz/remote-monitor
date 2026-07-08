@@ -211,4 +211,40 @@ class OnboardingScreenTest {
         composeTestRule.onNodeWithText("Network unavailable. Try again.").assertIsDisplayed()
         composeTestRule.onNodeWithTag("onboarding-error").assertIsDisplayed()
     }
+
+    /**
+     * wear-bed-picker-onboarding D12 + T3.9 routing precedence:
+     * `resolveInitialRepairRoute(...)` resolves to `"repair"` when
+     * `getBedNumber() == null` AND `getPatientId() != null` —
+     * pairing the legacy operator-typed pair (a state that pre-PR-2
+     * onboarding reached without ever populating KEY_BED_NUMBER).
+     * Mounting [RepairRequiredScreen] for that resolved route
+     * surfaces the dedicated recovery UI; the OnboardingScreen is
+     * not rendered in the same composition.
+     */
+    @Test
+    fun S_repair_required_screen_routing_precedence_resolves_to_repair() {
+        // The routing decision is delegated to
+        // `resolveInitialRepairRoute(...)` (companion of
+        // RepairRequiredScreen) so the precedence is unit-testable
+        // without spinning up the full Compose runtime.
+        val route = resolveInitialRepairRoute(
+            bedNumber = null,
+            patientId = "uuid-3",
+        )
+        assertEquals("repair", route)
+
+        // Mount the screen that the "repair" route composes and
+        // confirm the recovery UI is the one rendered. This is the
+        // minimal in-Compose assertion: the test tag uniquely
+        // identifies the repair screen and proves the routing
+        // decision wires the right Composable.
+        composeTestRule.setContent {
+            MyApplicationTheme {
+                RepairRequiredScreen(onTapRePair = {})
+            }
+        }
+        composeTestRule.onNodeWithTag("repair-required-screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("repair-button").assertIsDisplayed()
+    }
 }

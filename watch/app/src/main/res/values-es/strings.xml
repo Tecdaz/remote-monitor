@@ -24,4 +24,7 @@
     <string name="error_post_failed">No se pudo registrar la cama. Inténtalo de nuevo.</string>
     <string name="error_snapshot_failed">No se pudo cargar el estado de las camas. Toca Reintentar.</string>
     <string name="action_retry">Reintentar</string>
+    <string name="home_bed_label">Cama %1$d</string>
+    <string name="home_status_label">Cama %1$d · %2$d subidas pendientes</string>
+    <string name="action_repair">Re-emparejar</string>
 </resources>
