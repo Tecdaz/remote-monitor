@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -46,6 +47,15 @@ class IdentityRepositoryImpl(
     // wear-bed-picker-onboarding D23 + D24: bed-picker onboarding.
     override suspend fun getBedNumber(): String? =
         context.identityDataStore.data.map { it[KEY_BED_NUMBER] }.first()
+
+    /**
+     * wear-ui-guidelines D10: additive cold [Flow] over `KEY_BED_NUMBER`.
+     * Backed directly by `DataStore.data`, so it re-emits on every write
+     * to the bed-number key (including the atomic [persistPaired] batch).
+     * ADDITIVE only — [persistPaired] (D24) is untouched.
+     */
+    override fun observeBedNumber(): Flow<String?> =
+        context.identityDataStore.data.map { it[KEY_BED_NUMBER] }
 
     /**
      * Non-pairing writer for `KEY_BED_NUMBER`. The pairing flow does NOT

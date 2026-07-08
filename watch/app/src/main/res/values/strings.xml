@@ -31,6 +31,27 @@
     <string name="action_repair">Re-pair</string>
 
     <!--
+        wear-ui-guidelines D4 + D6 (spec cap 1): ADDITIVE glanceable HR
+        vitals keys for the home screen. The existing `home_status_label`
+        shape is UNCHANGED (D25 invariant) — these are new keys only.
+
+        DEBT-002 (#433 §3.1): these four strings ship with the PR but are
+        BLOCKED from GA until the clinical stakeholder signs off on the
+        Spanish clinical copy (notably the `lpm` = "latidos por minuto"
+        unit choice in `home_hr_value_format`). Do NOT release before
+        `clinical_sign_off_completed`.
+
+        Format-arg discipline (D25): `home_hr_value_format` uses numeric
+        `%1$d`; `home_last_update_label` uses string `%1$s` (a formatted
+        HH:mm time). Tests assert via `context.getString(...)`, never a
+        hardcoded literal.
+    -->
+    <string name="home_hr_label">Heart rate</string>
+    <string name="home_hr_value_format">%1$d bpm</string>
+    <string name="home_last_update_label">Last update %1$s</string>
+    <string name="home_hr_placeholder">—</string>
+
+    <!--
         wear-bed-picker-onboarding-warnings WARN-005: dedicated copy for
         RepairRequiredScreen. Previously the screen reused `action_repair`
         as its title and `dialog_occupied_body` as its body, which
