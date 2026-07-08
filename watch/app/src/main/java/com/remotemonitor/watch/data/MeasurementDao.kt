@@ -41,4 +41,22 @@ interface MeasurementDao {
 
     @Query("SELECT MIN(timestamp) FROM measurements")
     suspend fun minTimestamp(): Long?
+
+    // wear-ui-guidelines D10 / spec cap 1: reactive sources for the home
+    // vitals Flow. Both re-emit on every insert/delete (Room observes the
+    // `measurements` table), so HomeScreen surfaces the latest HR + the
+    // last-update time without polling. The merge-gate test mocks this
+    // DAO with `mockk(relaxed = true)`, so adding methods does not break
+    // it (same precedent as `pendingCount()`).
+
+    /** Most recent non-null HR BPM, or null when no reading is stored. */
+    @Query(
+        "SELECT heart_rate_bpm FROM measurements " +
+            "WHERE heart_rate_bpm IS NOT NULL ORDER BY timestamp DESC LIMIT 1",
+    )
+    fun lastHeartRate(): Flow<Int?>
+
+    /** Timestamp (epoch ms) of the most recent measurement, or null. */
+    @Query("SELECT MAX(timestamp) FROM measurements")
+    fun lastTimestamp(): Flow<Long?>
 }

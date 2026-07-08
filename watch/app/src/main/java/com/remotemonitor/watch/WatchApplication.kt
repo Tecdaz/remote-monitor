@@ -169,12 +169,16 @@ class WatchApplication : Application() {
     }
 
     /**
-     * Factory for [HomeViewModel]. Returns a new instance per call.
+     * Factory for [HomeViewModel]. Returns a new instance per call. The
+     * HR pipeline health (wear-ui-guidelines D6) is sourced from the
+     * shared [sensorOrchestrator] so the home vitals Flow can suppress
+     * the HR readout when the sensor has failed.
      */
     val homeViewModelFactory: () -> HomeViewModel = {
         HomeViewModel(
             identity = identityRepository,
             dao = measurementDao,
+            sensorHealth = sensorOrchestrator.healthState,
             scope = applicationScope,
         )
     }
