@@ -4,6 +4,27 @@
     <string name="sync_notification_text">Monitoring patient</string>
 
     <!--
+        wear-ui-guidelines D5 + D7 (spec #448 cap 2 + cap 5): localized
+        copy for the FGS notification + the Ongoing Activity status text
+        paired with it. `sync_notification_text` is the existing key
+        (its Spanish translation is added below in `values-es/strings.xml`
+        — it was MISSING pre-PR-4, which would have caused the FGS body
+        to fall back to English for any paired es-ES watch).
+
+        DEBT-002 (#433 §3.1): these four strings ship with the PR but
+        are BLOCKED from GA until the clinical stakeholder signs off on
+        the Spanish clinical copy. Do NOT release before
+        `clinical_sign_off_completed`.
+
+        Format-arg discipline (D25): `sync_bed_body_format` uses string
+        `%1$s` (the bed number as plaintext, e.g. "3"). Tests assert
+        via `context.getString(...)`, never a hardcoded literal.
+    -->
+    <string name="sync_notification_title">Sync</string>
+    <string name="sync_status_short">Sync</string>
+    <string name="sync_bed_body_format">Bed %1$s · syncing</string>
+
+    <!--
         wear-bed-picker-onboarding D7 + D25 + WB-5: English fallback keys
         for the bed-picker onboarding dialog. The Spanish translations
         live in `values-es/strings.xml`. The `home_*` / `action_repair`

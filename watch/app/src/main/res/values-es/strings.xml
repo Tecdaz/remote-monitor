@@ -29,6 +29,24 @@
     <string name="action_repair">Re-emparejar</string>
 
     <!--
+        wear-ui-guidelines D5 + D7 (spec #448 cap 2): localized Spanish
+        FGS copy. Pre-PR-4 `sync_notification_text` was MISSING from
+        this file — the FGS body would have fallen back to the English
+        literal "Monitoring patient" for any paired es-ES watch, which
+        violates spec #448 cap 2 scenario 1 ("ES locale + bed 3 paired →
+        title and body render in Spanish with Cama 3 in body"). The
+        new translation closes that gap.
+
+        Clinical copy review (⚠ DEBT-002, #433 §3.1): these strings are
+        LOCKED but UNAPPROVED. Block GA until clinical sign-off
+        (`clinical_sign_off_completed`).
+    -->
+    <string name="sync_notification_text">Monitoreando paciente</string>
+    <string name="sync_notification_title">Sincronizando</string>
+    <string name="sync_status_short">Sincronizando</string>
+    <string name="sync_bed_body_format">Cama %1$s · sincronizando</string>
+
+    <!--
         wear-ui-guidelines D4 + D6 (spec cap 1): ADDITIVE Spanish HR
         vitals copy for the home screen. Mirrors the English keys in
         `values/strings.xml`. The `home_status_label` shape is UNCHANGED
