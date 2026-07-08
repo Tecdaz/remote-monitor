@@ -19,9 +19,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+// wear-ui-guidelines PR-2 (D1): swap the mobile `NavHost` for the
+// Wear-correct `SwipeDismissableNavHost`. The Wear nav artifact
+// (`androidx.wear.compose:compose-navigation:1.5.6`, pulled in
+// transitively by the BOM from `1.3.0`) re-exports the `composable`
+// extension on `NavGraphBuilder` from its own package and ships
+// `rememberSwipeDismissableNavController` — so we drop the
+// `androidx.navigation.compose.{NavHost,composable,rememberNavController}`
+// imports too (the `androidx.navigation:navigation-compose` artifact
+// is no longer on the classpath). `androidx.navigation.NavHostController`
+// itself stays — `SwipeDismissableNavHost` consumes it directly.
+import androidx.wear.compose.navigation.SwipeDismissableNavHost
+import androidx.wear.compose.navigation.composable
+import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import androidx.compose.ui.platform.LocalContext
 import com.remotemonitor.watch.WatchApplication
 import com.remotemonitor.watch.sync.SyncForegroundService
@@ -153,8 +163,8 @@ internal fun startSyncForegroundService(context: android.content.Context) {
 
 @Composable
 private fun WatchNavHost(app: WatchApplication, startDestination: String) {
-    val navController = rememberNavController()
-    NavHost(
+    val navController = rememberSwipeDismissableNavController()
+    SwipeDismissableNavHost(
         navController = navController,
         startDestination = startDestination,
     ) {

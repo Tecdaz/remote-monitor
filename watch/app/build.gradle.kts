@@ -137,7 +137,10 @@ dependencies {
     implementation(libs.moshi.kotlin)
     implementation(libs.lifecycle.runtime)
     implementation(libs.lifecycle.viewmodel.compose)
-    implementation(libs.navigation.compose)
+    // wear-ui-guidelines PR-2 (D1): swap mobile `navigation-compose` for the
+    // Wear variant. Pulls in `navigation-runtime` transitively, keeping
+    // `NavHostController` + `rememberNavController` resolvable.
+    implementation(libs.wear.compose.navigation)
 
     // Room (T-WATCH-18). The Room artifacts are versioned explicitly in the
     // version catalog (`room = "2.7.2"`) because no `androidx.room:room-bom`
