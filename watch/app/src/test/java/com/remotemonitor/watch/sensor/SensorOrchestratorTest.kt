@@ -9,6 +9,7 @@ import io.mockk.slot
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -221,6 +222,68 @@ class SensorOrchestratorTest {
         val row = rows.single()
         assertEquals(70, row.heartRateBpm)
         assertNull("spo2Percent must be null in HR-only mode", row.spo2Percent)
+    }
+
+    /**
+     * wear-ui-guidelines D6 (spec cap 1 scenario 2): when the
+     * `readings` collection throws, [SensorOrchestrator.healthState]
+     * must flip to [SensorHealth.Failed] so the home vitals Flow can
+     * suppress the HR readout. This is the `runCatching` failure path —
+     * a real sensor teardown or SDK binder error.
+     */
+    @Test
+    fun `S_healthState_flips_to_Failed_on_runCatching_throw`() = runTest(UnconfinedTestDispatcher()) {
+        val throwingSensor = object : HeartRateSensor {
+            override val readings: Flow<HeartRateReading?> =
+                flow { throw RuntimeException("HR SDK binder died") }
+        }
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        val dao = mockk<MeasurementDao>(relaxed = true)
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = throwingSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        // Pre-condition: healthy at construction.
+        assertEquals(SensorHealth.Healthy, orchestrator.healthState.value)
+
+        orchestrator.start(backgroundScope)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(
+            "readings.collect() throwing must flip health to Failed",
+            SensorHealth.Failed,
+            orchestrator.healthState.value,
+        )
+    }
+
+    /**
+     * wear-ui-guidelines D6: a fresh non-null BPM keeps (or restores)
+     * [SensorHealth.Healthy]. Confirms the happy path does not
+     * spuriously flag Failed/OffWrist for a live sensor.
+     */
+    @Test
+    fun `S_healthState_stays_Healthy_while_bpm_flows`() = runTest(UnconfinedTestDispatcher()) {
+        val heartRateSensor = FakeHeartRateSensor(
+            flowOf(HeartRateReading(beatsPerMinute = 72, timestampMillis = 1_700_000_000_000L)),
+        )
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        val dao = mockk<MeasurementDao>(relaxed = true)
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = heartRateSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        orchestrator.start(backgroundScope)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(SensorHealth.Healthy, orchestrator.healthState.value)
     }
 
     private class FakeHeartRateSensor(override val readings: Flow<HeartRateReading?>) : HeartRateSensor
