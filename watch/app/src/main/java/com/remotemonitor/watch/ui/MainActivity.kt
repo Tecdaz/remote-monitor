@@ -10,6 +10,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,6 +22,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.platform.LocalContext
 import com.remotemonitor.watch.WatchApplication
 import com.remotemonitor.watch.sync.SyncForegroundService
 import com.remotemonitor.watch.ui.theme.MyApplicationTheme
@@ -30,15 +32,28 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as WatchApplication
-        // WU-2.19 GREEN: start the IBI sync loop as a foreground service.
+        // WU-2.19 GREEN: the IBI sync loop runs as a foreground service.
         // The service is declared `exported="false"` in AndroidManifest.xml
         // (Android 12+ security default for services with a
         // `foregroundServiceType`), so it MUST be started from within the
         // app — `adb shell am start-foreground-service` fails with
         // "Permission Denial: shell uid 2000 cannot start non-exported
-        // service of uid 10000". MainActivity.onCreate is the natural
-        // entry point: opening the app starts the sync.
-        startForegroundService(Intent(this, SyncForegroundService::class.java))
+        // service of uid 10000".
+        //
+        // wear-bed-picker-onboarding-warnings WARN-006: we no longer
+        // start the foreground service here in `onCreate`. On Android 14+
+        // with `targetSdk = 36`, `startForegroundService(...)` from
+        // `onCreate` fails with `ForegroundServiceStartNotAllowedException`
+        // because the activity is in the CREATED state, not yet RESUMED
+        // (uidState is SVC, not TOP/foreground-app). The fix is to start
+        // the service from a Compose `DisposableEffect(Unit)` inside
+        // [WatchApp] — the first composition fires only after the
+        // activity reaches STARTED state, which puts the FGS start in
+        // a foreground-eligible window.
+        //
+        // The service owns its lifetime (`START_STICKY` + idle-timeout
+        // in `SyncForegroundService.kt`); no `onDispose` is needed —
+        // recompositions must not restart the loop.
         setContent {
             MyApplicationTheme {
                 WatchApp(app = app)
@@ -84,6 +99,27 @@ fun WatchApp(app: WatchApplication) {
         val patientId = app.identityRepository.getPatientId()
         initialDestination = resolveInitialRepairRoute(bedNumber, patientId)
     }
+    // wear-bed-picker-onboarding-warnings WARN-006: start the IBI sync
+    // foreground service from a `DisposableEffect(Unit)` instead of
+    // `MainActivity.onCreate`. The `DisposableEffect` runs after the
+    // first composition succeeds — i.e. once the activity has reached
+    // the STARTED state and the caller is foreground-eligible. Calling
+    // `startForegroundService(...)` from `onCreate` (the prior location)
+    // raced Android 14+ `targetSdk = 36`'s
+    // `ForegroundServiceStartNotAllowedException` (`uidState = SVC`
+    // instead of `TOP`/`foreground-app`), crashing `SyncForegroundService`
+    // on cold-start after `pm clear`. The effect runs exactly once per
+    // root composition; the service owns its own lifetime
+    // (`START_STICKY` + idle-timeout in `SyncForegroundService.kt`), so
+    // `onDispose` is intentionally a no-op — recompositions must not
+    // tear down or restart the loop. The actual `startForegroundService`
+    // call is extracted into [startSyncForegroundService] so the helper
+    // is unit-testable without standing up the full Compose runtime.
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        startSyncForegroundService(context)
+        onDispose { /* service owns its own lifetime */ }
+    }
     val dest = initialDestination
     if (dest != null) {
         WatchNavHost(app = app, startDestination = dest)
@@ -92,6 +128,27 @@ fun WatchApp(app: WatchApplication) {
     // not a spinner — the read is fast (single-pref DataStore, cached
     // after first read) and a flash of a spinner on first launch
     // would be more jarring than a 50-100ms blank frame.
+}
+
+/**
+ * Starts [SyncForegroundService] as a foreground service from the supplied
+ * [context] (either an Activity context in the foreground-eligible
+ * window after first composition, or the application context when
+ * invoked from a non-Compose caller such as a unit test).
+ *
+ * wear-bed-picker-onboarding-warnings WARN-006: previously inlined in
+ * `MainActivity.onCreate`, which ran while the activity was still in
+ * the CREATED state. On Android 14+ with `targetSdk = 36` this races
+ * `ForegroundServiceStartNotAllowedException`. The helper is now
+ * invoked from a Compose `DisposableEffect(Unit)` inside [WatchApp],
+ * which fires once the activity has reached the STARTED state.
+ *
+ * Extracted from [WatchApp] so the call itself is unit-testable
+ * independent of the Compose runtime (see
+ * `MainActivityStartsSyncServiceTest`).
+ */
+internal fun startSyncForegroundService(context: android.content.Context) {
+    context.startForegroundService(Intent(context, SyncForegroundService::class.java))
 }
 
 @Composable
