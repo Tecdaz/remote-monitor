@@ -1,12 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  splash_icon: brand glyph on a circular plate for the Android 12+ splash
+  screen (Theme.SplashScreen on watch, see wear-bed-picker-onboarding D36).
 
+  wear-ui-guidelines PR-1 (Spec #448 cap 3) — replaces the Android Studio
+  template default (white circle + black Android bot). Heart glyph matches
+  ic_launcher_foreground so launcher and splash stay visually coherent.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:width="48dp"
         android:height="48dp"
         android:gravity="center">
         <shape android:shape="oval">
-            <solid android:color="#FFFFFF" />
+            <solid android:color="#0F2A4A" />
         </shape>
     </item>
     <item
@@ -16,12 +23,11 @@
         <vector
             android:width="24dp"
             android:height="24dp"
-            android:tint="#000000"
             android:viewportWidth="24"
             android:viewportHeight="24">
             <path
-                android:fillColor="#FF000000"
-                android:pathData="M17.6,11.48 L19.44,8.3a0.63,0.63 0,0 0,-1.09 -0.63l-1.88,3.24a11.43,11.43 0,0 0,-8.94 0L5.65,7.67a0.63,0.63 0,0 0,-1.09 0.63L6.4,11.48A10.81,10.81 0,0 0,1 20L23,20A10.81,10.81 0,0 0,17.6 11.48ZM7,17.25A1.25,1.25 0,1 1,8.25 16,1.25 1.25,0 0,1 7,17.25ZM17,17.25A1.25,1.25 0,1 1,18.25 16,1.25 1.25,0 0,1 17,17.25Z" />
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z" />
         </vector>
     </item>
 </layer-list>

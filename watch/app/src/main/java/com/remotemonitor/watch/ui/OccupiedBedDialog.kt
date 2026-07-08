@@ -2,7 +2,6 @@ package com.remotemonitor.watch.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -143,26 +142,7 @@ fun SnapshotStatusMessage(
     }
 }
 
-/**
- * Unused ref kept here for parity with the Snackbar affordance in
- * [OnboardingScreen]. Reserved for future PR-3d "occupancy timeout"
- * follow-up.
- */
-@Suppress("unused")
-@Composable
-internal fun DialogButtonRow(
-    onAccept: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    Row(
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        androidx.wear.compose.material3.Button(onClick = onAccept) {
-            WearText(text = stringResource(R.string.dialog_accept))
-        }
-        androidx.wear.compose.material3.TextButton(onClick = onCancel) {
-            WearText(text = stringResource(R.string.dialog_cancel))
-        }
-    }
-}
+// DialogButtonRow removed in wear-ui-guidelines PR-1 (task 2.1.1, design
+// #450 supersedes the prior "Reserved for PR-3d occupancy timeout"
+// reservation). The dialog affordance is fully owned by [OccupiedBedDialog]
+// above; no other call site existed.
