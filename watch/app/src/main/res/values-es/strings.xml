@@ -29,6 +29,22 @@
     <string name="action_repair">Re-emparejar</string>
 
     <!--
+        wear-ui-guidelines D4 + D6 (spec cap 1): ADDITIVE Spanish HR
+        vitals copy for the home screen. Mirrors the English keys in
+        `values/strings.xml`. The `home_status_label` shape is UNCHANGED
+        (D25 invariant).
+
+        Clinical copy review (⚠ DEBT-002, #433 §3.1): these strings are
+        LOCKED but UNAPPROVED. `home_hr_value_format` uses `lpm`
+        (latidos por minuto), the clinical Spanish convention for bpm.
+        Block GA until clinical sign-off (`clinical_sign_off_completed`).
+    -->
+    <string name="home_hr_label">Frecuencia cardíaca</string>
+    <string name="home_hr_value_format">%1$d lpm</string>
+    <string name="home_last_update_label">Última lectura %1$s</string>
+    <string name="home_hr_placeholder">—</string>
+
+    <!--
         wear-bed-picker-onboarding-warnings WARN-005: Spanish copy for
         RepairRequiredScreen. Mirrors the new `repair_required_title`
         and `repair_required_body` English keys. Locked Spanish text
