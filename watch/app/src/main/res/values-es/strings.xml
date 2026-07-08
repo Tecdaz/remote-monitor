@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    wear-bed-picker-onboarding D7: Spanish locale (`values-es`) for the
+    bed-picker onboarding copy. The keys mirror the locked Spanish
+    translations defined in §11.4 of design-files #425. The default
+    English siblings live in `values/strings.xml`. This file is owned by
+    PR-3b; PR-3c will add the three `home_*` / `action_*` keys (they
+    must NOT be added here either until PR-3c).
+
+    Clinical copy review (⚠ §12.1 carry-over): the strings in this
+    file are tracked for Spanish clinical sign-off. Do NOT change them
+    without clinical review.
+-->
+<resources>
+    <string name="onboarding_title">Selección de cama</string>
+    <string name="onboarding_section_label">Selecciona la cama para este dispositivo</string>
+    <string name="bed_free">Libre</string>
+    <string name="bed_occupied">Ocupada</string>
+    <string name="dialog_occupied_title">Cama ocupada</string>
+    <string name="dialog_occupied_body">Esta cama ya tiene una sesión activa. Si continúas, se asignará una nueva sesión y la sesión actual quedará inactiva.</string>
+    <string name="dialog_accept">Aceptar</string>
+    <string name="dialog_cancel">Cancelar</string>
+    <string name="snackbar_paired_to_bed">Emparejado a la cama %1$d</string>
+    <string name="error_post_failed">No se pudo registrar la cama. Inténtalo de nuevo.</string>
+    <string name="error_snapshot_failed">No se pudo cargar el estado de las camas. Toca Reintentar.</string>
+    <string name="action_retry">Reintentar</string>
+</resources>

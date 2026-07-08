@@ -2,4 +2,23 @@
     <string name="app_name">Remote Monitor</string>
     <string name="hello_world">Hello, %1$s!</string>
     <string name="sync_notification_text">Monitoring patient</string>
+
+    <!--
+        wear-bed-picker-onboarding D7: English fallback keys for the
+        bed-picker onboarding dialog. The Spanish translations live in
+        `values-es/strings.xml`. PR-3c owns the `home_*` / `action_repair`
+        keys — do NOT add them here.
+    -->
+    <string name="onboarding_title">Select a bed</string>
+    <string name="onboarding_section_label">Select the bed for this device</string>
+    <string name="bed_free">Free</string>
+    <string name="bed_occupied">Occupied</string>
+    <string name="dialog_occupied_title">Bed occupied</string>
+    <string name="dialog_occupied_body">This bed already has an active session. If you continue, a new session will be assigned and the current session will become inactive.</string>
+    <string name="dialog_accept">Accept</string>
+    <string name="dialog_cancel">Cancel</string>
+    <string name="snackbar_paired_to_bed">Paired to bed %1$d</string>
+    <string name="error_post_failed">Failed to register the bed. Please try again.</string>
+    <string name="error_snapshot_failed">Failed to load bed status. Tap Retry.</string>
+    <string name="action_retry">Retry</string>
 </resources>
