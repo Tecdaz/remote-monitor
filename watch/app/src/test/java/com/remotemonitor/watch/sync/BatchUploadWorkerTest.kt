@@ -13,7 +13,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -28,14 +27,28 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.UUID
 
 /**
- * Merge-gate test for REQ-WATCH-05 (Strict TDD red-first).
+ * Merge-gate test for REQ-WATCH-05 (Strict TDD red-first);
+ * wear-bed-picker-onboarding D13 + D22 + §11.1 of design-files #425.
  *
  * 7 scenarios cover the `delete-after-echo` invariant under every
  * failure path. This test fails red until the production
  * [BatchUploadWorker.runOnce] is implemented in T-WATCH-24.
  *
  * CI: this test is the merge gate for PR 2. A failure blocks merge
- * (REQ-WATCH-22).
+ * (REQ-WATCH-22). The PR-3c additions add the D13 silent-mode guard
+ * (`S_worker_no_ops_when_bed_number_null`) and switch the
+ * `X-Patient-Number` header source from `getPatientNumber()` (legacy
+ * ciphertext/plaintext "P-00042") to `getBedNumber()` (bed plaintext
+ * in "1".."5" per D22 / §11.1).
+ *
+ * wear-bed-picker-onboarding D13 + §12.2 of design-files #425 WB-2:
+ * the previous worker probed `identity.getPatientNumber()` which (for
+ * a legacy pre-PR-2 operator-typed pair that never went through
+ * `persistPaired`) returns "P-00042"-style garbage, NOT a bed
+ * plaintext. The `X-Patient-Number` header would carry that garbage
+ * and the backend `pgp_sym_decrypt` lookup would 4xx. The PR-3c fix
+ * short-circuits on `getBedNumber() == null` and sends the bed
+ * plaintext (NOT the legacy "P-00042") on the success path.
  */
 class BatchUploadWorkerTest {
 
@@ -74,8 +87,8 @@ class BatchUploadWorkerTest {
             entity(l2, 75),
             entity(l3, 80),
         )
+        coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
-        coEvery { identity.getPatientNumber() } returns "P-00001"
         every { deviceInfo.isFirstUpload() } returns true
 
         server.enqueue(ok("""{"accepted_ids":["$l1","$l2","$l3"],"rejected":[]}"""))
@@ -100,6 +113,7 @@ class BatchUploadWorkerTest {
             entity(l2, 75),
             entity(l3, 80),
         )
+        coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
         every { deviceInfo.isFirstUpload() } returns false
 
@@ -122,6 +136,7 @@ class BatchUploadWorkerTest {
         val l1 = UUID.randomUUID().toString()
         val l2 = UUID.randomUUID().toString()
         coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72), entity(l2, 75))
+        coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
         every { deviceInfo.isFirstUpload() } returns false
 
@@ -142,6 +157,7 @@ class BatchUploadWorkerTest {
         val l1 = UUID.randomUUID().toString()
         val l2 = UUID.randomUUID().toString()
         coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72), entity(l2, 75))
+        coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
         every { deviceInfo.isFirstUpload() } returns false
 
@@ -173,6 +189,7 @@ class BatchUploadWorkerTest {
 
                 val l1 = UUID.randomUUID().toString()
                 coEvery { localDao.selectPending(1000) } returns listOf(entity(l1, 72))
+                coEvery { localIdentity.getBedNumber() } returns "3"
                 coEvery { localIdentity.getPatientId() } returns "uuid-1"
                 every { localDeviceInfo.isFirstUpload() } returns false
 
@@ -196,6 +213,7 @@ class BatchUploadWorkerTest {
         val allRows = (1..1500).map { entity(UUID.randomUUID().toString(), 72 + (it % 30)) }
         val firstBatch = allRows.take(1000)
         coEvery { dao.selectPending(1000) } returns firstBatch
+        coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
         every { deviceInfo.isFirstUpload() } returns false
 
@@ -206,11 +224,6 @@ class BatchUploadWorkerTest {
 
         assertEquals(1000, result.acceptedCount)
         assertEquals(0, result.rejectedCount)
-        // The 500 rows not in the first batch are NOT in Room per the
-        // stub's behavior — but the test should require that ONLY the
-        // first 1000 are sent + deleted. The remaining 500 are addressed
-        // by the next `selectPending(1000)` call, which is the FGS loop's
-        // job, not this test's.
         coVerify(exactly = 1) { dao.deleteByIds(firstBatch.map { it.localId }) }
     }
 
@@ -220,8 +233,8 @@ class BatchUploadWorkerTest {
     fun `S05_7 first upload includes X-Patient-Number X-Device-Model X-OS-Version`() = runTest {
         val l1 = UUID.randomUUID().toString()
         coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72))
+        coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
-        coEvery { identity.getPatientNumber() } returns "P-00042"
         every { deviceInfo.deviceModel() } returns "Samsung Galaxy Watch 4"
         every { deviceInfo.osVersion() } returns "Wear OS 6 (API 36)"
         every { deviceInfo.isFirstUpload() } returns true
@@ -235,7 +248,10 @@ class BatchUploadWorkerTest {
         // the test runner.
         val recorded = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
             ?: error("Expected exactly one HTTP request; got 0")
-        assertEquals("P-00042", recorded.getHeader("X-Patient-Number"))
+        // wear-bed-picker-onboarding D22 + §11.1: the header value is
+        // now the BED PLAINTEXT, NOT the legacy "P-00042"-style
+        // operator-typed number. Verifies the silent D22 swap.
+        assertEquals("3", recorded.getHeader("X-Patient-Number"))
         assertEquals("Samsung Galaxy Watch 4", recorded.getHeader("X-Device-Model"))
         assertEquals("Wear OS 6 (API 36)", recorded.getHeader("X-OS-Version"))
 
@@ -271,8 +287,8 @@ class BatchUploadWorkerTest {
     fun `S05_7b subsequent uploads omit X-Device-Model and X-OS-Version`() = runTest {
         val l1 = UUID.randomUUID().toString()
         coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72))
+        coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
-        coEvery { identity.getPatientNumber() } returns "P-00042"
         every { deviceInfo.deviceModel() } returns "Samsung Galaxy Watch 4"
         every { deviceInfo.osVersion() } returns "Wear OS 6 (API 36)"
         every { deviceInfo.isFirstUpload() } returns false
@@ -283,7 +299,7 @@ class BatchUploadWorkerTest {
 
         val recorded = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
             ?: error("Expected exactly one HTTP request; got 0")
-        assertEquals("P-00042", recorded.getHeader("X-Patient-Number"))
+        assertEquals("3", recorded.getHeader("X-Patient-Number"))
         assertEquals(null, recorded.getHeader("X-Device-Model"))
         assertEquals(null, recorded.getHeader("X-OS-Version"))
     }
@@ -320,8 +336,8 @@ class BatchUploadWorkerTest {
                 ibisMs = listOf(800L, 820L),
             )
         )
+        coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
-        coEvery { identity.getPatientNumber() } returns "P-00001"
         every { deviceInfo.isFirstUpload() } returns false
 
         server.enqueue(ok("""{"accepted_ids":["$l1"],"rejected":[]}"""))
@@ -336,6 +352,44 @@ class BatchUploadWorkerTest {
             "body must contain \"ibis_ms\":[800,820], got: $body",
             body.contains("\"ibis_ms\":[800,820]"),
         )
+    }
+
+    // --- wear-bed-picker-onboarding D13 silent-mode guard --------------
+
+    /**
+     * D13 / T3.11: when `identity.getBedNumber()` returns null (the
+     * half-paired legacy state from a pre-PR-2 operator-typed pair),
+     * the worker MUST short-circuit with `UploadResult(0, 0, 0)` and
+     * must not touch the network or the DAO. The legacy behaviour
+     * would have sent a malformed `X-Patient-Number` header; the
+     * backend would have 4xx'd the call. Better to silently no-op and
+     * let the next loop iteration retry AFTER the operator re-pairs.
+     *
+     * This is the load-bearing acceptance test for the D13 fix.
+     */
+    @Test
+    fun `S_worker_no_ops_when_bed_number_null`() = runTest {
+        // No pending rows: even so, the D13 guard must short-circuit
+        // BEFORE the `selectPending` call (less work in the hot path).
+        coEvery { identity.getBedNumber() } returns null
+        // getPatientId intentionally unstubbed — if the worker
+        // reaches the patientId check, the relaxed mock would
+        // return null and the keptCount would be pending.size, NOT
+        // the expected 0/0/0 silent no-op.
+        val result = worker.runOnce()
+
+        assertEquals("accepted", 0, result.acceptedCount)
+        assertEquals("rejected", 0, result.rejectedCount)
+        assertEquals("kept (must NOT include pending rows)", 0, result.keptCount)
+        // Crucially: NO network request was made. The server recorded
+        // 0 requests.
+        assertEquals(
+            "worker must NOT touch the network when bed_number is null",
+            0,
+            server.requestCount,
+        )
+        // And no DAO delete.
+        coVerify(exactly = 0) { dao.deleteByIds(any()) }
     }
 
     private fun ok(body: String) = MockResponse().setResponseCode(200).setBody(body)
