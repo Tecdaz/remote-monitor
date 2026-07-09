@@ -41,5 +41,10 @@ class Settings(BaseSettings):
     ws_ping_timeout_s: float = 30.0
     ws_pong_grace_s: float = 60.0
 
+    # Patient inactivity sweep threshold (seconds). Patients whose
+    # last accepted measurement is older than this are deactivated
+    # by the periodic background sweep.
+    patient_inactivity_threshold_s: float = 300.0
+
 
 settings = Settings()
