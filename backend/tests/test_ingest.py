@@ -20,7 +20,7 @@ from __future__ import annotations
 import base64
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
@@ -525,6 +525,105 @@ class TestIngestService:
         assert list(row.ibis_ms) == [800, 820], (
             f"expected ibis_ms=[800, 820], got {list(row.ibis_ms)!r}"
         )
+
+    # --- patient inactivity refresh (sdd/feat-patient-inactivity-sweep) --
+
+    async def test_upload_refreshes_last_measurement_on_accepted_batch(
+        self, session: AsyncSession
+    ) -> None:
+        """An accepted batch advances clinical.patients.last_measurement_at."""
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        from app.services.crypto import encrypt_patient_number
+
+        path_pid = uuid4()
+        old_ts = datetime.now(timezone.utc) - timedelta(seconds=400)
+        async with session.begin():
+            cipher = await encrypt_patient_number(session, "1")
+            await session.execute(
+                pg_insert(PiiPatient).values(
+                    patient_id=path_pid, patient_number=cipher
+                )
+            )
+            await session.execute(
+                pg_insert(ClinicalPatient).values(
+                    patient_id=path_pid,
+                    device_model="watch",
+                    os_version="1",
+                    is_active=True,
+                    bed_number=1,
+                    last_measurement_at=old_ts,
+                )
+            )
+        await session.commit()
+
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="1",
+            raw_items=[_valid_item()],
+        )
+        assert len(response.accepted_ids) == 1
+
+        new_ts = (
+            await session.execute(
+                text(
+                    "SELECT last_measurement_at FROM clinical.patients "
+                    "WHERE patient_id = :pid"
+                ),
+                {"pid": path_pid},
+            )
+        ).scalar_one()
+        assert new_ts > old_ts
+
+    async def test_upload_does_not_refresh_last_measurement_on_rejected_batch(
+        self, session: AsyncSession
+    ) -> None:
+        """A fully rejected batch leaves last_measurement_at unchanged."""
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        from app.services.crypto import encrypt_patient_number
+
+        path_pid = uuid4()
+        old_ts = datetime.now(timezone.utc) - timedelta(seconds=400)
+        async with session.begin():
+            cipher = await encrypt_patient_number(session, "2")
+            await session.execute(
+                pg_insert(PiiPatient).values(
+                    patient_id=path_pid, patient_number=cipher
+                )
+            )
+            await session.execute(
+                pg_insert(ClinicalPatient).values(
+                    patient_id=path_pid,
+                    device_model="watch",
+                    os_version="1",
+                    is_active=True,
+                    bed_number=2,
+                    last_measurement_at=old_ts,
+                )
+            )
+        await session.commit()
+
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="2",
+            raw_items=[_invalid_item()],
+        )
+        assert len(response.accepted_ids) == 0
+        assert len(response.rejected) == 1
+
+        unchanged_ts = (
+            await session.execute(
+                text(
+                    "SELECT last_measurement_at FROM clinical.patients "
+                    "WHERE patient_id = :pid"
+                ),
+                {"pid": path_pid},
+            )
+        ).scalar_one()
+        assert unchanged_ts == old_ts
 
 
 # =========================================================================

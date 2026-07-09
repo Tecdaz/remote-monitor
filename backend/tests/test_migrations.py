@@ -43,8 +43,13 @@ def round_trip_db() -> None:
     yield
 
 
-def test_add_ibis_to_measurements_round_trip(round_trip_db: None) -> None:
-    """WU-2.16/2.17 — apply, revert, re-apply the ibis migration."""
+def test_migrations_round_trip(round_trip_db: None) -> None:
+    """Apply, revert, and re-apply the current head migration.
+
+    Head is currently ``ca6ca1c8fa96`` (add last_measurement_at to
+    clinical.patients); this guard also covers any migrations that
+    came before it because the round-trip starts from base.
+    """
     _alembic("upgrade", "head")
     _alembic("downgrade", "-1")
     _alembic("upgrade", "head")
