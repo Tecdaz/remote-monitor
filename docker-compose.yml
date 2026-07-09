@@ -37,5 +37,17 @@ services:
       postgres:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      # Runtime env vars read at container startup by docker-entrypoint.sh.
+      # Edit frontend/.env when the ngrok URL rotates.
+      - ./frontend/.env
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:

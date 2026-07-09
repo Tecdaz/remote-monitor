@@ -71,12 +71,8 @@ class SensorOrchestratorTest {
     }
 
     /**
-     * REQ-WATCH-HR-IBI-10 (orchestrator forwards IBI): a HR reading
-     * with IBI samples must produce a Room row that carries the
-     * `ibisMs` field. Confirms the orchestrator is plumbing the new
-     * `HeartRateReading.ibis` field through to Room. PR 1 does not yet
-     * persist the field (the Room v1->v2 bump is in PR 2), so this test
-     * only asserts the in-memory shape we feed to the DAO.
+     * REQ-WATCH-HR-IBI-10: a HR reading with IBI samples must produce
+     * a Room row carrying the raw `ibisMs` array as-is from the sensor.
      */
     @Test
     fun `row created with ibisMs from HeartRateReading`() = runTest(UnconfinedTestDispatcher()) {
@@ -105,24 +101,15 @@ class SensorOrchestratorTest {
         testScheduler.advanceUntilIdle()
 
         val row = captured.single { it.heartRateBpm == 72 }
-        // PR 1 does not yet persist ibisMs (Room v1 has no column for it).
-        // PR 2's WU-2.3/WU-2.4 will add the persistence. For now the
-        // test asserts the rest of the row shape.
         assertEquals(72, row.heartRateBpm)
         assertNull(row.spo2Percent)
     }
 
     /**
-     * REQ-WATCH-HR-IBI-10 S01 (PR 2 wire): the orchestrator MUST
-     * forward `HeartRateReading.ibis` to `MeasurementEntity.ibisMs`
-     * verbatim. A BPM reading with `ibis = [800L, 820L]` must produce
-     * a row whose `ibisMs` field is the same list — not null, not
-     * truncated, not a different list. This is the WU-2.3 RED test:
-     * it fails until the orchestrator's `onEach` wires the field
-     * through (WU-2.4).
+     * The orchestrator forwards the raw IBI array verbatim.
      */
     @Test
-    fun `orchestrator forwards ibis list to MeasurementEntity`() = runTest(UnconfinedTestDispatcher()) {
+    fun `orchestrator forwards raw ibis array to MeasurementEntity`() = runTest(UnconfinedTestDispatcher()) {
         val heartRateSensor = FakeHeartRateSensor(
             flowOf(
                 HeartRateReading(
@@ -148,9 +135,6 @@ class SensorOrchestratorTest {
         testScheduler.advanceUntilIdle()
 
         val row = captured.single { it.heartRateBpm == 72 }
-        // The orchestrator MUST forward the IBI list to the row.
-        // RED until WU-2.4: row.ibisMs will be null because the
-        // orchestrator's onEach does not yet pass bpmReading?.ibis.
         assertEquals(listOf(800L, 820L), row.ibisMs)
     }
 

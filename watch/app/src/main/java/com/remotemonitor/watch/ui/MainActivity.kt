@@ -7,6 +7,7 @@ package com.remotemonitor.watch.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
@@ -41,6 +42,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // REQ-WATCH-BG-03: keep the screen on so the Samsung Health SDK
+        // continues delivering HR data. Without this flag, the watch
+        // enters TaskAmbiactive after a few seconds of inactivity and
+        // the SDK stops emitting silently — the idle-timeout /
+        // reconnect loop keeps the flow alive but data only flows when
+        // the screen wakes back up.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val app = application as WatchApplication
         // WU-2.19 GREEN: the IBI sync loop runs as a foreground service.
         // The service is declared `exported="false"` in AndroidManifest.xml

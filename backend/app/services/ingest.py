@@ -25,7 +25,7 @@ enforces the following invariants:
    rolls the patient registration back too.
 6. WS publish AFTER commit (REQ-WS-02) — only when the commit
    succeeds do we call ``manager.publish(patient_id, ...)`` with a
-   WsMeasurementEvent for the FIRST accepted measurement. The
+    WsMeasurementEvent for EVERY accepted measurement. The
    publish is best-effort: a WS failure does not invalidate the
    HTTP 200. Clients that miss the event can still re-fetch via
    ``GET /measurements`` (REQ-READ-01).
@@ -72,14 +72,15 @@ async def _resolve_patient(
     If the X-Patient-Number resolves to an existing active
     ``PiiPatient`` row (i.e. its matching ``clinical.patients`` row
     has ``is_active = true``), assert that its ``patient_id`` matches
-    the path; otherwise raise 403. A decrypt-equal row whose clinical
-    row is ``is_active = false`` is treated as a miss (REQ-INGEST-08):
-    the prior session is a deactivated historical record and the
-    caller is treated as a new registration.
+    the path; otherwise raise 403.
 
-    If the X-Patient-Number is unknown (or only matches a deactivated
-    row), register a new patient using the path ``patient_id`` and
-    the device headers.
+    If the patient_number exists but is inactive (e.g. the inactivity
+    sweep deactivated it), reactivate the clinical row and update
+    device metadata — no new PII row is created because the
+    encrypted patient_number is already stored.
+
+    If the X-Patient-Number is genuinely unknown, register a new
+    patient using the path ``patient_id`` and the device headers.
 
     Implementation note: ``pgp_sym_encrypt`` is non-deterministic (it
     uses a random IV), so we cannot encrypt-and-compare. Instead the
@@ -89,6 +90,7 @@ async def _resolve_patient(
     """
     from app.config import settings
 
+    # 1. Check for an ACTIVE patient with this patient_number.
     existing_id = (
         await session.execute(
             text(
@@ -105,8 +107,6 @@ async def _resolve_patient(
 
     if existing_id is not None:
         if existing_id != path_patient_id:
-            # X-Patient-Number resolves to a different patient_id than
-            # the path parameter — header/path mismatch (REQ-INGEST-06).
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
@@ -116,20 +116,46 @@ async def _resolve_patient(
             )
         return existing_id
 
-    # First-time upload for this patient_number (or post-deactivation
-    # re-pair) — auto-register in the same transaction. Use the path
-    # patient_id as the new patient_id so the watch's URL is
-    # meaningful.
-    #
-    # In the bed-picker world (REQ-INGEST-06), the
-    # X-Patient-Number header carries a bed plaintext "1".."5".
-    # Mirror that into ``bed_number`` so the CHECK constraint
-    # ``ck_bed_number_required_when_active`` passes for the new
-    # active row. If the plaintext does not parse to a 1..5
-    # integer (legacy non-numeric fixtures or malformed input),
-    # leave bed_number NULL — that row is only allowed to be
-    # created via the dedicated POST /patients path which validates
-    # the range in Pydantic.
+    # 2. No active row — check for an INACTIVE row with the same
+    #    patient_number. If found, reactivate it instead of creating
+    #    a duplicate PII row (which would violate the UNIQUE constraint
+    #    on pii.patients.patient_id).
+    inactive_id = (
+        await session.execute(
+            text(
+                "SELECT pp.patient_id "
+                "FROM pii.patients pp "
+                "JOIN clinical.patients cp "
+                "  ON cp.patient_id = pp.patient_id "
+                "WHERE pgp_sym_decrypt(pp.patient_number, :key) = :plain "
+                "  AND cp.is_active = false"
+            ),
+            {"plain": patient_number, "key": settings.pii_encryption_key},
+        )
+    ).scalar_one_or_none()
+
+    if inactive_id is not None:
+        # Reactivate: flip is_active, update device metadata, refresh
+        # last_measurement_at so the inactivity sweep won't kill it
+        # again immediately.
+        await session.execute(
+            text(
+                "UPDATE clinical.patients "
+                "SET is_active = true, "
+                "    device_model = :device_model, "
+                "    os_version = :os_version, "
+                "    last_measurement_at = now() "
+                "WHERE patient_id = :pid"
+            ),
+            {
+                "pid": inactive_id,
+                "device_model": device_model,
+                "os_version": os_version,
+            },
+        )
+        return inactive_id
+
+    # 3. Genuinely new patient — create both PII and clinical rows.
     try:
         parsed_bed = int(patient_number)
     except (TypeError, ValueError):
@@ -271,43 +297,42 @@ async def upload_measurements(
     accepted_ids = [item.local_id for item in valid_items]
 
     # WS fan-out (REQ-WS-02). Best-effort: a failure here must not
-    # invalidate the 200 response. We publish ONLY the first accepted
-    # measurement in the batch (PoC choice — the spec allows "all" or
-    # "first"; first is simpler and reduces WS traffic).
+    # invalidate the 200 response. We publish EVERY accepted measurement
+    # in the batch so the frontend sees all persisted data, not just the
+    # first item (bugfix: "first only" was causing frontend gaps).
     if valid_items and received_at is not None and item_ids:
-        first_item = valid_items[0]
-        first_id = item_ids[0]
-        measurement_dict: dict[str, Any] = {
-            "id": str(first_id),
-            "patient_id": str(patient_id),
-            "local_id": str(first_item.local_id),
-            "timestamp": first_item.timestamp.isoformat(),
-            "heart_rate_bpm": first_item.heart_rate_bpm,
-            "spo2_percent": (
-                float(first_item.spo2_percent)
-                if first_item.spo2_percent is not None
-                else None
-            ),
-            "received_at": received_at.isoformat(),
-            "ibis_ms": (
-                list(first_item.ibis_ms)
-                if first_item.ibis_ms is not None
-                else None
-            ),
-        }
-        try:
-            await manager.publish(
-                patient_id,
-                {"type": "measurement.created", "data": measurement_dict},
-            )
-        except Exception as exc:  # noqa: BLE001
-            # Log and swallow — the 200 is the contract, the WS push
-            # is a courtesy.
-            import structlog
-            structlog.get_logger().warning(
-                "ws publish failed; clients may miss event",
-                patient_id=str(patient_id),
-                error=str(exc),
-            )
+        for i, item in enumerate(valid_items):
+            measurement_dict: dict[str, Any] = {
+                "id": str(item_ids[i]),
+                "patient_id": str(patient_id),
+                "local_id": str(item.local_id),
+                "timestamp": item.timestamp.isoformat(),
+                "heart_rate_bpm": item.heart_rate_bpm,
+                "spo2_percent": (
+                    float(item.spo2_percent)
+                    if item.spo2_percent is not None
+                    else None
+                ),
+                "received_at": received_at.isoformat(),
+                "ibis_ms": (
+                    list(item.ibis_ms)
+                    if item.ibis_ms is not None
+                    else None
+                ),
+            }
+            try:
+                await manager.publish(
+                    patient_id,
+                    {"type": "measurement.created", "data": measurement_dict},
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Log and swallow — the 200 is the contract, the WS push
+                # is a courtesy.
+                import structlog
+                structlog.get_logger().warning(
+                    "ws publish failed; clients may miss event",
+                    patient_id=str(patient_id),
+                    error=str(exc),
+                )
 
     return BatchResponse(accepted_ids=accepted_ids, rejected=rejected)

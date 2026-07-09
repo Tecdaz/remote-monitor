@@ -25,6 +25,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.logging_config import configure_logging
@@ -66,6 +67,19 @@ app = FastAPI(
 # log line emitted by it) carries a request_id from the moment the
 # request enters the app.
 app.add_middleware(XRequestIDMiddleware)
+
+# CORS — allow the frontend (dev server and Docker) to call the API.
+# PoC posture: open to localhost origins only. Tighten in production.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Routers
 app.include_router(health.router)

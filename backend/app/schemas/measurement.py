@@ -45,17 +45,11 @@ class MeasurementBatch(BaseModel):
         le=100,
         description="SpO2 percentage (0-100). `null` if the sensor failed.",
     )
-    # REQ-WATCH-HR-IBI-11: IBI list (inter-beat intervals in ms).
-    # `None` for old clients that don't send the field; per-item
-    # clamp [1, 5000] rejects negatives and physiologically absurd
-    # values. `Measurement(MeasurementBatch)` inherits this field
-    # automatically — no class change needed.
+    # Raw IBI array from the Samsung sensor — delivered as-is,
+    # no transformation. `None` when the device does not provide IBI.
     ibis_ms: list[int] | None = Field(
         default=None,
-        description=(
-            "Inter-beat intervals in milliseconds. `None` when the "
-            "device does not provide IBI samples."
-        ),
+        description="Raw inter-beat intervals in milliseconds (Samsung IBI_LIST).",
     )
 
     @field_validator("ibis_ms")

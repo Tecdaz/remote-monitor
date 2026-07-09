@@ -1,5 +1,6 @@
 package com.remotemonitor.watch.sensor
 
+import android.util.Log
 import com.remotemonitor.watch.data.MeasurementDao
 import com.remotemonitor.watch.data.MeasurementEntity
 import kotlinx.coroutines.CancellationException
@@ -68,49 +69,100 @@ class SensorOrchestrator(
     /**
      * Start collecting sensor data and writing to Room. Idempotent: a
      * second call while running is a no-op.
+     *
+     * REQ-WATCH-BG-01: the collection runs in a retry loop so that a
+     * Samsung SDK disconnection (e.g. when the app goes to background)
+     * triggers an automatic reconnect after [RETRY_DELAY_MS]. Only a
+     * [CancellationException] (from [stop]) breaks the loop.
      */
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return
         job = scope.launch {
-            // runCatching catches Throwable (including CancellationException
-            // and JobCancellationException). This is intentional: when
-            // [stop] cancels the job, the [collect] suspension throws,
-            // and we want the coroutine to terminate cleanly without
-            // surfacing the cancellation to the caller (test or FGS).
-            var lastBpmAt = clock()
-            runCatching {
-                heartRateSensor.readings
-                    .onEach { bpmReading ->
-                        val now = clock()
-                        val bpm = bpmReading?.beatsPerMinute
-                        if (bpm != null) {
-                            // A fresh reading means the pipeline is alive
-                            // and on-wrist again.
-                            lastBpmAt = now
-                            _healthState.value = SensorHealth.Healthy
-                        } else if (now - lastBpmAt >= offWristTimeoutMs) {
-                            // Sustained null readings = off-wrist (D6). We
-                            // do NOT overwrite a Failed state here; only a
-                            // successful reading clears Failed.
-                            if (_healthState.value != SensorHealth.Failed) {
-                                _healthState.value = SensorHealth.OffWrist
+            while (isActive) {
+                // Track the last BPM timestamp per-collection attempt
+                // so off-wrist detection resets on each reconnect.
+                var lastBpmAt = clock()
+                val result = runCatching {
+                    heartRateSensor.readings
+                        .onEach { bpmReading ->
+                            val now = clock()
+                            val bpm = bpmReading?.beatsPerMinute
+                            // REQ-WATCH-BG-02: the Samsung SDK may emit
+                            // BPM=0 during sensor recovery. A BPM of 0
+                            // is physiologically invalid and would be
+                            // rejected by the backend. Skip this reading
+                            // entirely — don't write it to Room, don't
+                            // reset the off-wrist timer.
+                            if (bpm != null && bpm <= 0) return@onEach
+                            if (bpm != null) {
+                                // A fresh reading means the pipeline is alive
+                                // and on-wrist again.
+                                lastBpmAt = now
+                                _healthState.value = SensorHealth.Healthy
+                            } else if (now - lastBpmAt >= offWristTimeoutMs) {
+                                // Sustained null readings = off-wrist (D6). We
+                                // do NOT overwrite a Failed state here; only a
+                                // successful reading clears Failed.
+                                if (_healthState.value != SensorHealth.Failed) {
+                                    _healthState.value = SensorHealth.OffWrist
+                                }
                             }
+                            // REQ-WATCH-HR-IBI-08: the Samsung SDK tags each
+                            // IBI with a quality flag in IBI_STATUS_LIST:
+                            //   0 = REJECT (noisy / invalid)
+                            //   1 = ACCEPT (clean)
+                            // Only ACCEPT IBIs reach the backend so HRV
+                            // metrics (RMSSD, SDNN, Poincaré, PSD) are
+                            // computed on veridical data.
+                            val cleanIbis = bpmReading?.let { reading ->
+                                val ibis = reading.ibis ?: return@let null
+                                val status = reading.ibisStatus
+                                if (status == null || status.size != ibis.size) {
+                                    // Defensive: if status is missing or
+                                    // mismatched, keep all IBIs rather
+                                    // than silently dropping valid data.
+                                    ibis
+                                } else {
+                                    val accepted = ibis.filterIndexed { i, _ -> status[i] != 0 }
+                                    val dropped = ibis.size - accepted.size
+                                    if (dropped > 0) {
+                                        Log.d(TAG, "Filtered $dropped noisy IBI(s) (REJECT); kept ${accepted.size}")
+                                    }
+                                    accepted.ifEmpty { null }
+                                }
+                            }
+                            val row = MeasurementEntity(
+                                localId = UUID.randomUUID().toString(),
+                                timestamp = now,
+                                heartRateBpm = bpm,
+                                spo2Percent = null,
+                                ibisMs = cleanIbis,
+                            )
+                            dao.insert(row)
                         }
-                        val row = MeasurementEntity(
-                            localId = UUID.randomUUID().toString(),
-                            timestamp = now,
-                            heartRateBpm = bpm,
-                            spo2Percent = null,
-                            ibisMs = bpmReading?.ibis,
-                        )
-                        dao.insert(row)
+                        .collect()
+                }
+                val cause = result.exceptionOrNull()
+                when {
+                    cause is CancellationException -> return@launch
+                    cause != null -> {
+                        // REQ-WATCH-BG-01: sensor collection threw
+                        // (non-cancellation). Flip health to Failed,
+                        // then retry after delay.
+                        Log.w(TAG, "Sensor flow threw; retrying in ${RETRY_DELAY_MS}ms", cause)
+                        _healthState.value = SensorHealth.Failed
                     }
-                    .collect()
-            }.onFailure { cause ->
-                // Cancellation is normal teardown (see [stop]); it is NOT
-                // a sensor failure and must not flip the health signal.
-                if (cause is CancellationException) return@onFailure
-                _healthState.value = SensorHealth.Failed
+                    else -> {
+                        // REQ-WATCH-BG-01: flow completed normally
+                        // (e.g. Samsung SDK onConnectionEnded closed it).
+                        // Retry after delay so the orchestrator
+                        // reconnects automatically.
+                        Log.d(TAG, "Sensor flow completed; retrying in ${RETRY_DELAY_MS}ms")
+                    }
+                }
+                if (isActive) {
+                    delay(RETRY_DELAY_MS)
+                }
             }
         }
     }
@@ -124,6 +176,8 @@ class SensorOrchestrator(
     }
 
     private companion object {
+        const val TAG = "SensorOrchestrator"
+
         /**
          * Default off-wrist grace period. If no BPM arrives within this
          * window (the sensor keeps emitting `null`), [healthState] flips
@@ -131,6 +185,14 @@ class SensorOrchestrator(
          * transient-null tolerance on the wrist.
          */
         const val DEFAULT_OFF_WRIST_TIMEOUT_MS = 30_000L
+
+        /**
+         * REQ-WATCH-BG-01: delay between reconnect attempts when the
+         * sensor flow ends (disconnection, SDK error, etc.). 5 s gives
+         * the Samsung Health Service enough time to recover without
+         * busy-looping.
+         */
+        const val RETRY_DELAY_MS = 5_000L
     }
 }
 

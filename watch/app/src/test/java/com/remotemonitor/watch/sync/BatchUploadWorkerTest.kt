@@ -310,22 +310,10 @@ class BatchUploadWorkerTest {
         MeasurementEntity(localId, timestamp = System.currentTimeMillis(), heartRateBpm = bpm, spo2Percent = null)
 
     /**
-     * REQ-WATCH-HR-IBI-10 S02 (PR 2 wire): when a Room row carries
-     * `ibisMs = [800L, 820L]`, the `BatchUploadWorker` POST body
-     * must serialize the field as a JSON array of integers:
-     * `"ibis_ms":[800,820]`. This is the WU-2.7 RED guard. It
-     * fails until Moshi's `KotlinJsonAdapterFactory` routes the
-     * new field through the default `List<Long>` -> JSON int array
-     * adapter (which it does natively; see design §4 and WU-2.8).
-     *
-     * Asserts the wire shape by reading the MockWebServer-recorded
-     * request body and matching the exact `ibis_ms` JSON key. The
-     * companion assertion (Long deserialization after a round-trip
-     * with the backend) lives in `MeasurementSerializationTest`
-     * (WU-2.5).
+     * Raw IBI array: the POST body must serialize ibis_ms as a JSON int array.
      */
     @Test
-    fun `S05_8 IBI list is serialized in POST body as ibis_ms JSON array`() = runTest {
+    fun `S05_8 IBI array serialized as ibis_ms JSON array`() = runTest {
         val l1 = UUID.randomUUID().toString()
         coEvery { dao.selectPending(1000) } returns listOf(
             MeasurementEntity(
@@ -347,7 +335,6 @@ class BatchUploadWorkerTest {
         val recorded = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
             ?: error("Expected exactly one HTTP request; got 0")
         val body = recorded.body.readUtf8()
-        // The exact Moshi wire shape: snake_case key, JSON int array.
         assertTrue(
             "body must contain \"ibis_ms\":[800,820], got: $body",
             body.contains("\"ibis_ms\":[800,820]"),

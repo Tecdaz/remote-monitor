@@ -31,3 +31,5 @@ build/
 # Local AI runtime state
 .atl/
 .playwright-mcp
+
+*.png

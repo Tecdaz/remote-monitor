@@ -55,10 +55,8 @@ class ClinicalMeasurement(Base):
         DateTime(timezone=True),
         server_default=None,  # server default is added by the migration
     )
-    # REQ-WATCH-HR-IBI-13: IBI samples (inter-beat intervals in ms).
-    # Stored as ``bigint[]`` so the column is queryable for the HRV
-    # consumer (``array_length(ibis_ms)``, percentile queries). NULL
-    # for old clients and devices that do not expose IBI.
+    # Raw IBI array from the Samsung sensor, delivered as-is.
+    # Stored as `bigint[]`. NULL when the device does not expose IBI.
     ibis_ms: Mapped[list[int] | None] = mapped_column(
         ARRAY(BigInteger), nullable=True
     )

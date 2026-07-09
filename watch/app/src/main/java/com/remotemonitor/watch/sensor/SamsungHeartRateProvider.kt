@@ -1,6 +1,7 @@
 package com.remotemonitor.watch.sensor
 
 import android.content.Context
+import android.util.Log
 import com.samsung.android.service.health.tracking.ConnectionListener
 import com.samsung.android.service.health.tracking.HealthTracker
 import com.samsung.android.service.health.tracking.HealthTrackerException
@@ -8,9 +9,13 @@ import com.samsung.android.service.health.tracking.HealthTrackingService
 import com.samsung.android.service.health.tracking.data.DataPoint
 import com.samsung.android.service.health.tracking.data.HealthTrackerType
 import com.samsung.android.service.health.tracking.data.ValueKey
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * Real [HeartRateSensor] backed by the Samsung Health Sensor SDK AAR
@@ -60,6 +65,9 @@ class SamsungHeartRateProvider(
 ) : HeartRateSensor {
 
     override val readings: Flow<HeartRateReading?> = callbackFlow {
+        // Capture the producer scope so ConnectionListener callbacks
+        // can close the flow when the SDK drops the connection.
+        val producer = this@callbackFlow
         lateinit var service: HealthTrackingService
         // REQ-WATCH-HR-IBI-05 S02: track whether the binder ever
         // reached `onConnectionSuccess`. Pre-connection cancel must
@@ -68,6 +76,13 @@ class SamsungHeartRateProvider(
         // no-op per the AAR, but spec S02 mandates "NOT called").
         // Post-connection cancel MUST call it (binder is live).
         var connectionEstablished: Boolean = false
+
+        // REQ-WATCH-BG-01: track the last time data arrived from the
+        // SDK. If the SDK goes silent (ambient mode, background, etc.)
+        // without calling onConnectionEnded, the idle monitor closes
+        // the flow so the orchestrator can reconnect.
+        var lastDataAt: Long = clock()
+        var idleMonitor: Job? = null
 
         val listener = object : ConnectionListener {
             override fun onConnectionSuccess() {
@@ -85,14 +100,39 @@ class SamsungHeartRateProvider(
                     close()
                     return
                 }
+
+                // REQ-WATCH-BG-01: start the idle monitor. If no
+                // data arrives for IDLE_TIMEOUT_MS, close the flow
+                // so SensorOrchestrator's retry loop reconnects.
+                idleMonitor = launch {
+                    while (isActive) {
+                        delay(IDLE_CHECK_INTERVAL_MS)
+                        if (clock() - lastDataAt > IDLE_TIMEOUT_MS) {
+                            Log.d(TAG, "No sensor data for ${IDLE_TIMEOUT_MS}ms; closing flow for reconnect")
+                            producer.close()
+                            return@launch
+                        }
+                    }
+                }
+
                 tracker.setEventListener(object : HealthTracker.TrackerEventListener {
                     override fun onDataReceived(dataPoints: List<DataPoint>) {
+                        // Reset the idle timer on every data batch.
+                        lastDataAt = clock()
                         // REQ-WATCH-HR-IBI-02: only the first DataPoint
                         // carries IBI_LIST (and IBI_STATUS_LIST).
                         // Subsequent DataPoints in the same callback are
                         // dropped (their IBI is null).
                         val first = dataPoints.firstOrNull() ?: return
-                        val bpm = first.getValue(ValueKey.HeartRateSet.HEART_RATE) ?: return
+                        val rawBpm = first.getValue(ValueKey.HeartRateSet.HEART_RATE) ?: return
+                        // REQ-WATCH-BG-02: the Samsung SDK may emit
+                        // HEART_RATE=0 during connection establishment
+                        // or sensor recovery. Treat it as a null
+                        // reading — the orchestrator will handle it
+                        // via off-wrist detection. We still emit the
+                        // reading so the idle timer resets and the flow
+                        // doesn't get prematurely closed.
+                        val validBpm: Int? = if (rawBpm <= 0) null else rawBpm
                         // REQ-WATCH-HR-IBI-03: Int -> Long at the read
                         // boundary (cleaner downstream HRV math).
                         val ibis = first.getValue(ValueKey.HeartRateSet.IBI_LIST)
@@ -100,7 +140,7 @@ class SamsungHeartRateProvider(
                         val ibisStatus = first.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST)
                         trySend(
                             HeartRateReading(
-                                beatsPerMinute = bpm,
+                                beatsPerMinute = validBpm ?: 0,
                                 timestampMillis = clock(),
                                 ibis = ibis,
                                 ibisStatus = ibisStatus,
@@ -137,7 +177,12 @@ class SamsungHeartRateProvider(
             }
 
             override fun onConnectionEnded() {
-                // Not used: the connection is single-shot per collect.
+                // REQ-WATCH-BG-01: the Samsung Health SDK closed the
+                // connection (typically when the app goes to background).
+                // Close the flow so SensorOrchestrator's retry loop can
+                // reconnect. awaitClose releases the binder.
+                Log.d(TAG, "HealthTrackingService connection ended; closing flow for reconnect")
+                producer.close()
             }
         }
 
@@ -149,9 +194,29 @@ class SamsungHeartRateProvider(
         // (post-`onConnectionSuccess`). The pre-connection cancel
         // path must NOT call disconnectService per spec S02.
         awaitClose {
+            idleMonitor?.cancel()
             if (connectionEstablished) {
                 runCatching { service.disconnectService() }
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "SamsungHRProvider"
+
+        /**
+         * REQ-WATCH-BG-01: if no data arrives from the Samsung SDK
+         * within this window, the flow closes so the orchestrator can
+         * reconnect. 60 s tolerates off-wrist gaps while catching
+         * ambient-mode / background disconnections.
+         */
+        const val IDLE_TIMEOUT_MS = 60_000L
+
+        /**
+         * How often the idle monitor checks [lastDataAt]. 10 s is
+         * frequent enough to catch silence within [IDLE_TIMEOUT_MS]
+         * without busy-looping.
+         */
+        const val IDLE_CHECK_INTERVAL_MS = 10_000L
     }
 }

@@ -11,6 +11,7 @@ export interface Measurement {
   timestamp: string;
   heart_rate_bpm: number | null;
   spo2_percent: number | null;
+  ibis_ms: number[] | null;
   received_at: string;
 }
 

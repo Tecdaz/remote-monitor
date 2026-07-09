@@ -45,7 +45,7 @@ help:
 	@echo "Source of truth: backend/.env.test (NGROK_*) and watch/.env.test (watchIP, watchPort)."
 	@echo
 	@echo "Lifecycle:"
-	@echo "  make up                 docker compose up -d (postgres + backend)"
+	@echo "  make up                 docker compose up -d (postgres + backend + frontend)"
 	@echo "  make down               docker compose down"
 	@echo "  make ngrok-up           start ngrok tunnel in background (logs: $(NGROK_LOG))"
 	@echo "  make ngrok-down         kill the ngrok tunnel"
@@ -73,6 +73,14 @@ help:
 	@echo "  make test-backend       pytest backend/tests"
 	@echo "  make test-watch         ./gradlew :app:testDebugUnitTest"
 	@echo
+	@echo "Frontend:"
+	@echo "  make frontend-install   bun install (first time or after package.json changes)"
+	@echo "  make frontend-dev       bun run dev (local dev server, no Docker)"
+	@echo "  make frontend-build     bun run build (local build check)"
+	@echo "  make frontend-typecheck bunx tsc --noEmit"
+	@echo "  make frontend-up        docker compose up -d frontend (container)"
+	@echo "  make frontend-logs      docker compose logs -f frontend"
+	@echo
 	@echo "Convenience:"
 	@echo "  make demo               up + ngrok-up + build-install-run"
 	@echo "  make demo-clean         backend-db-clean + watch-clean-all + build-install-run"
@@ -84,7 +92,8 @@ help:
 up:
 	docker compose up -d
 	@echo
-	@echo "Backend ready: http://localhost:8000"
+	@echo "Backend ready:  http://localhost:8000"
+	@echo "Frontend ready: http://localhost:3000"
 	@echo "Postgres ready: localhost:5432"
 
 down:
@@ -241,6 +250,30 @@ test-watch:
 test: test-backend test-watch
 	@echo
 	@echo "All tests passed."
+
+# --- Frontend --------------------------------------------------------------
+.PHONY: frontend-install frontend-dev frontend-build frontend-typecheck \
+        frontend-up frontend-logs
+
+frontend-install:
+	cd frontend && bun install
+
+frontend-dev:
+	cd frontend && bun run dev
+
+frontend-build:
+	cd frontend && bun run build
+
+frontend-typecheck:
+	cd frontend && bunx tsc --noEmit
+
+frontend-up:
+	docker compose up -d --build frontend
+	@echo
+	@echo "Frontend ready: http://localhost:3000"
+
+frontend-logs:
+	docker compose logs -f frontend
 
 # --- Convenience ----------------------------------------------------------
 .PHONY: demo demo-clean
