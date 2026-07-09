@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
@@ -63,8 +65,16 @@ fun BedPickerScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            // wear-bed-pager-collapsed-height: vertical padding reduced
+            // from 24dp -> 4dp. The previous value, combined with the
+            // title (30dp) + 2x16dp spacings + subtitle (21dp), left the
+            // pager with a 0-share on a 450x450 Galaxy Watch 4 (~174dp
+            // inner Column). With 4dp vertical padding the title +
+            // subtitle + spacings fit in ~50dp and the pager gets the
+            // remaining ~120dp — enough for the 64dp badge + 56dp
+            // Confirm button.
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         WearText(
@@ -74,12 +84,12 @@ fun BedPickerScreen(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
-        val pagerState = rememberPagerState(initialPage = 0) { 5 }
+        val pagerState = rememberPagerState(initialPage = 0) { BED_PAGES }
         HorizontalPager(
             state = pagerState,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
+                .weight(1f, fill = false),
         ) { pageIndex ->
             val bedNumber = pageIndex + 1
             val entry = snapshot.firstOrNull { it.bedNumber == bedNumber }
@@ -90,6 +100,15 @@ fun BedPickerScreen(
                 onSelected = { onBedSelected(bedNumber) },
             )
         }
+        // wear-bed-pager-page-indicator: 5 dots showing which bed the
+        // user is currently viewing. Without an indicator the operator
+        // tapping the watch face doesn't realize there are 4 other beds
+        // available via horizontal swipe (the carousel is one-page-at-a-
+        // time on a 450x450 face).
+        BedPageIndicator(
+            currentPage = pagerState.currentPage,
+            modifier = Modifier.fillMaxWidth(),
+        )
         WearText(
             text = stringResource(R.string.onboarding_section_label),
             style = MaterialTheme.typography.bodySmall,
@@ -173,3 +192,52 @@ private fun BedPage(
 
 // BED_OCCUPIED_COLOR + BED_FREE_COLOR moved to ui/theme/BedStatusColors.kt
 // (wear-ui-guidelines PR-1 task 2.1.2).
+
+/** Number of carousel pages — one per bed 1..5 (wear-bed-picker D5). */
+private const val BED_PAGES = 5
+
+/**
+ * Five-dot page indicator showing the operator which bed is currently in
+ * view and that there are more options via horizontal swipe
+ * (wear-bed-pager-page-indicator).
+ *
+ * The current page reads `pagerState.currentPage` which is backed by
+ * [androidx.compose.foundation.pager.PagerState]'s internal snapshot
+ * state, so Compose recomposes this indicator on every page change
+ * without needing `derivedStateOf` or `LaunchedEffect`.
+ *
+ * Sized ~6dp per dot so 5 dots + 6dp spacing × 4 = ~54dp wide; the
+ * selected dot grows to 8dp and uses `onBackground` so it pops against
+ * the AMOLED black watch face.
+ */
+@Composable
+private fun BedPageIndicator(
+    currentPage: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(
+            space = 6.dp,
+            alignment = Alignment.CenterHorizontally,
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(BED_PAGES) { index ->
+            val isSelected = currentPage == index
+            Box(
+                modifier = Modifier
+                    .size(if (isSelected) 8.dp else 6.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.onBackground
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        }
+                    )
+                    .testTag("bed-page-indicator-$index"),
+            )
+        }
+    }
+}
