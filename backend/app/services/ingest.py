@@ -238,6 +238,19 @@ async def upload_measurements(
             )
             await session.execute(insert_stmt)
 
+            # Refresh the patient's "last seen" timestamp so the
+            # inactivity sweep does not deactivate an actively uploading
+            # patient (REQ-INGEST-??). This UPDATE lives in the same
+            # transaction as the measurement inserts + audit row.
+            await session.execute(
+                text(
+                    "UPDATE clinical.patients "
+                    "SET last_measurement_at = now() "
+                    "WHERE patient_id = :pid"
+                ),
+                {"pid": patient_id},
+            )
+
         # Exactly one audit row per successful batch (REQ-SCHEMA-04).
         # The count is the number of items the watch ATTEMPTED to
         # persist (the deduplicated ones are still in accepted_ids).

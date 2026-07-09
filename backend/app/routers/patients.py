@@ -67,6 +67,7 @@ def _row_to_patient(patient_id: UUID, patient_number: str, row) -> Patient:
         os_version=row.os_version,
         created_at=row.created_at,
         is_active=row.is_active,
+        last_measurement_at=row.last_measurement_at,
     )
 
 
@@ -218,8 +219,8 @@ async def register_patient(
     row = (
         await session.execute(
             text(
-                "SELECT device_model, os_version, created_at, is_active "
-                "FROM clinical.patients WHERE patient_id = :pid"
+                "SELECT device_model, os_version, created_at, is_active, "
+                "last_measurement_at FROM clinical.patients WHERE patient_id = :pid"
             ),
             {"pid": new_patient_id},
         )
@@ -297,7 +298,8 @@ async def list_patients(
             text(
                 "SELECT cp.patient_id, "
                 "pgp_sym_decrypt(pp.patient_number, :key) AS patient_number, "
-                "cp.device_model, cp.os_version, cp.created_at, cp.is_active "
+                "cp.device_model, cp.os_version, cp.created_at, cp.is_active, "
+                "cp.last_measurement_at "
                 "FROM clinical.patients cp "
                 "JOIN pii.patients pp ON cp.patient_id = pp.patient_id "
                 "WHERE cp.is_active = true "
@@ -314,6 +316,7 @@ async def list_patients(
             os_version=r["os_version"],
             created_at=r["created_at"],
             is_active=r["is_active"],
+            last_measurement_at=r["last_measurement_at"],
         )
         for r in rows
     ]
@@ -338,7 +341,8 @@ async def get_patient(
             text(
                 "SELECT cp.patient_id, "
                 "pgp_sym_decrypt(pp.patient_number, :key) AS patient_number, "
-                "cp.device_model, cp.os_version, cp.created_at, cp.is_active "
+                "cp.device_model, cp.os_version, cp.created_at, cp.is_active, "
+                "cp.last_measurement_at "
                 "FROM clinical.patients cp "
                 "JOIN pii.patients pp ON cp.patient_id = pp.patient_id "
                 "WHERE cp.patient_id = :pid"
@@ -359,6 +363,7 @@ async def get_patient(
         os_version=r["os_version"],
         created_at=r["created_at"],
         is_active=r["is_active"],
+        last_measurement_at=r["last_measurement_at"],
     )
 
 

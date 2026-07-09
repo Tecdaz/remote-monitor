@@ -52,6 +52,13 @@ class Patient(BaseModel):
         ...,
         description="Soft-delete flag. `false` means deactivated.",
     )
+    last_measurement_at: datetime = Field(
+        ...,
+        description=(
+            "Timestamp of the last accepted measurement batch. "
+            "Non-nullable because the database column is NOT NULL DEFAULT now()."
+        ),
+    )
 
 
 class RegisterPatientRequest(BaseModel):
