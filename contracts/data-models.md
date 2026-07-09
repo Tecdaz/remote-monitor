@@ -8,8 +8,8 @@ Cross-language reference for the 5 core models. The OpenAPI schema in `contracts
 # D32: patient_number is encrypted bed number (pgp_sym_encrypt of the bed number in 1..5),
 # NOT an operator-typed identifier. Do not display as plain text.
 type: object
-required: [patient_id, patient_number, device_model, os_version, created_at, is_active]
-properties: { patient_id: {type: string, format: uuid}, patient_number: {type: string}, device_model: {type: string}, os_version: {type: string}, created_at: {type: string, format: date-time}, is_active: {type: boolean} }
+required: [patient_id, patient_number, device_model, os_version, created_at, is_active, last_measurement_at]
+properties: { patient_id: {type: string, format: uuid}, patient_number: {type: string}, device_model: {type: string}, os_version: {type: string}, created_at: {type: string, format: date-time}, is_active: {type: boolean}, last_measurement_at: {type: string, format: date-time} }
 ```
 ```python
 class Patient(BaseModel):
@@ -24,16 +24,17 @@ class Patient(BaseModel):
     )
     device_model: str; os_version: str
     created_at: datetime; is_active: bool = True
+    last_measurement_at: datetime
 ```
 ```typescript
 // patient_number is encrypted bed number (pgp_sym_encrypt of bed 1..5);
 // NOT an operator-typed identifier; do not display as plain text.
-export interface Patient { patient_id: string; patient_number: string; device_model: string; os_version: string; created_at: string; is_active: boolean; }
+export interface Patient { patient_id: string; patient_number: string; device_model: string; os_version: string; created_at: string; is_active: boolean; last_measurement_at: string; }
 ```
 ```kotlin
 // patient_number is encrypted bed number (pgp_sym_encrypt of bed 1..5);
 // NOT an operator-typed identifier; do not display as plain text.
-@Serializable data class Patient(val patientId: UUID, val patientNumber: String, val deviceModel: String, val osVersion: String, val createdAt: Instant, val isActive: Boolean = true)
+@Serializable data class Patient(val patientId: UUID, val patientNumber: String, val deviceModel: String, val osVersion: String, val createdAt: Instant, val isActive: Boolean = true, val lastMeasurementAt: Instant)
 ```
 
 ## Measurement

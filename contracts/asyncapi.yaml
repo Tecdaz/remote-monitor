@@ -47,6 +47,7 @@ operations:
     description: Pushed by the server whenever a new measurement is persisted for this patient.
     messages:
       - $ref: '#/components/messages/WsMeasurementEvent'
+      - $ref: '#/components/messages/WsPatientDeactivated'
 components:
   messages:
     WsMeasurementEvent:
@@ -56,6 +57,13 @@ components:
       contentType: application/json
       payload:
         $ref: '#/components/schemas/WsMeasurementEventPayload'
+    WsPatientDeactivated:
+      name: WsPatientDeactivated
+      title: Patient deactivated by inactivity sweep
+      summary: Server push when the sweep deactivates a patient after the inactivity threshold
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/WsPatientDeactivatedPayload'
     WsPing:
       name: WsPing
       title: App-level ping
@@ -84,6 +92,16 @@ components:
       properties:
         type: { type: string, enum: [measurement.created] }
         data: { $ref: 'https://raw.githubusercontent.com/remote-monitor/contracts/main/openapi.yaml#/components/schemas/Measurement' }
+    WsPatientDeactivatedPayload:
+      type: object
+      required: [type, data]
+      properties:
+        type: { type: string, enum: [patient.deactivated] }
+        data:
+          type: object
+          required: [patient_id]
+          properties:
+            patient_id: { type: string, format: uuid, description: "Opaque UUID of the deactivated patient." }
     WsPingPayload:
       type: object
       required: [type, ts]

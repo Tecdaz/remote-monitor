@@ -20,6 +20,12 @@ export type WsMeasurementEvent = {
   data: Measurement;
 };
 
+/** Server push when the inactivity sweep deactivates a patient. See `WsPatientDeactivated` in asyncapi.yaml. */
+export type WsPatientDeactivated = {
+  type: 'patient.deactivated';
+  data: { patient_id: string };
+};
+
 /** App-level ping. See `WsPing` in asyncapi.yaml. */
 export type WsPing = {
   type: 'ping';
@@ -48,6 +54,7 @@ export type WsSubscribed = {
 /** Discriminated union of every WebSocket message. */
 export type WsMessage =
   | WsMeasurementEvent
+  | WsPatientDeactivated
   | WsPing
   | WsPong
   | WsError

@@ -198,7 +198,7 @@ components:
     Patient:
       type: object
       description: "A registered patient. `patient_number` is the only PII field."
-      required: [patient_id, patient_number, device_model, os_version, created_at, is_active]
+      required: [patient_id, patient_number, device_model, os_version, created_at, is_active, last_measurement_at]
       properties:
         patient_id:    { type: string, format: uuid, description: "Server-assigned opaque UUID. The only link from clinical records to PII." }
         patient_number: { type: string, description: "Encrypted bed number (PostgreSQL pgp_sym_encrypt of the bed number in 1..5). NOT an operator-typed identifier; do not display as plain text.", example: "MIIBiQYJKoZIhvcNAQDo+0D+lpNbQEDdHJlYXRlZEBrE1lMrQECREMwBQYDK2VwBCMQOlhLVDc4WnB1djVxTEhNSjFQcmZQTlpMNlVrQVhxY3NQNFhmN2tVS2tGM1VxSlhVSmkrRmhKN0FLb0o3SFd6RHhLdlJZRHJLZkx4c1Q3Z2VBQ0FvM2JrR0tuZUFIZlpPMU9wNkhRK09wcG9WM2d2bXF1TGIya3RCVVZtVGh1YVk4PQECMB2jTFPleV9bscAtxA99JeUQiEYD6v6+arT3qUUEAQH/" }
@@ -206,6 +206,7 @@ components:
         os_version:    { type: string, description: "Watch OS version string.", example: "Wear OS 6 (API 36)" }
         created_at:    { type: string, format: date-time, description: "Server-assigned registration timestamp." }
         is_active:     { type: boolean, description: "Soft-delete flag. `false` means deactivated." }
+        last_measurement_at: { type: string, format: date-time, description: "Timestamp of the last accepted measurement batch. Non-nullable; defaults to registration time via the DDL DEFAULT." }
     RegisterPatientRequest:
       type: object
       description: "Payload for `POST /patients`. Replaces the free-form `patient_number` operator-typed identifier with `bed_number` in 1..5 (the watch's bed picker now emits this). `replace_active_session` opts into an atomic replace of any active session on the same bed; absent or `false` returns `409 bed_now_occupied` when the bed is currently active."
