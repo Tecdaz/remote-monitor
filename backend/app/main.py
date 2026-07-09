@@ -21,20 +21,40 @@ Wires:
 """
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.config import settings
 from app.logging_config import configure_logging
 from app.middleware import XRequestIDMiddleware
 from app.routers import health, measurements, patients, readyz
+from app.services.inactivity import start_sweep_task
 from app.ws.routes import router as ws_router
 
 # Configure logging first so any startup log line uses the new policy.
 configure_logging()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start background tasks on startup and clean them up on shutdown."""
+    sweep_task = start_sweep_task(settings.patient_inactivity_threshold_s)
+    try:
+        yield
+    finally:
+        sweep_task.cancel()
+        try:
+            await sweep_task
+        except asyncio.CancelledError:
+            pass
+
+
 app = FastAPI(
     title="remote-monitor-backend",
     version="0.1.0",
+    lifespan=lifespan,
     description=(
         "FastAPI ingest service + WebSocket broadcast hub for the "
         "remote-monitor PoC. PR3 ships the HTTP surface; PR4 adds the "
