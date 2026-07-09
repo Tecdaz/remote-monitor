@@ -14,6 +14,8 @@ RUN uv sync --frozen --no-dev
 
 # Copy the application source.
 COPY app ./app
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 # Run as a non-root user.
 RUN useradd --create-home --shell /bin/bash backend \
