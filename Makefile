@@ -63,7 +63,7 @@ help:
 	@echo "  make build-install-run  build + install + run, in order"
 	@echo
 	@echo "Reset / clean:"
-	@echo "  make backend-db-clean   DROP all backend tables + alembic upgrade head"
+	@echo "  make backend-db-clean   TRUNCATE every table outside public (preserves schema)"
 	@echo "  make watch-clean        pm clear $(APP_PKG)"
 	@echo "  make watch-grant        pm grant sensor permissions (after pm clear)"
 	@echo "  make watch-clean-all    watch-clean + watch-grant"
