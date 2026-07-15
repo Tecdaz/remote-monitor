@@ -108,8 +108,10 @@ class WatchApplication : Application() {
      */
     val database: AppDatabase by lazy {
         Room.databaseBuilder(this, AppDatabase::class.java, "measurements.db")
-            // PoC: destructive migration is acceptable; the next non-PoC
-            // bump must add a real Migration.
+            // REQ-NOISE-WATCH-03: real migration preserves pending rows when
+            // adding `ibis_status`. Destructive fallback remains as a safety
+            // net for unforeseen future schema mismatches, not for this bump.
+            .addMigrations(AppDatabase.MIGRATION_4_5)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }

@@ -2,14 +2,18 @@ package com.remotemonitor.watch.data
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * Room database for the watch's local measurement store
  * (REQ-WATCH-06, T-WATCH-18).
  *
  * - Single entity: [MeasurementEntity] (table `measurements`).
- * - Version 4 — reverted from v3 scalar `ibi_ms` back to v2 `ibis_ms`
- *   (BIGINT[]). Destructive migration in effect.
+ * - Version 5 — added `ibis_status` JSON text column for per-beat quality
+ *   flags (REQ-NOISE-WATCH-03). Real [MIGRATION_4_5] preserves pending rows;
+ *   [fallbackToDestructiveMigration] in [com.remotemonitor.watch.WatchApplication]
+ *   is a safety net only.
  * - Schema is exported to `app/schemas/` by the Room compiler
  *   (KSP arg `room.schemaLocation` in `app/build.gradle.kts`).
  *
@@ -23,9 +27,23 @@ import androidx.room.RoomDatabase
  */
 @Database(
     entities = [MeasurementEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun measurementDao(): MeasurementDao
+
+    companion object {
+        /**
+         * REQ-NOISE-WATCH-03: explicit migration from v4 to v5 adds the
+         * `ibis_status` column as a JSON text column. Room stores the
+         * `List<Int>?` field via [IbiStatusConverter] as `TEXT`, mirroring
+         * the historical `ibis_ms` column type.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE measurements ADD COLUMN ibis_status TEXT")
+            }
+        }
+    }
 }

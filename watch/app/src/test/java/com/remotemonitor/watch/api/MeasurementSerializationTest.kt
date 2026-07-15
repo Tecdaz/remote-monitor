@@ -5,6 +5,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -188,5 +189,80 @@ class MeasurementSerializationTest {
             "body must either omit ibis_ms or write it as null, got: $json",
             !json.contains("\"ibis_ms\":") || json.contains("\"ibis_ms\":null"),
         )
+    }
+
+    /**
+     * REQ-NOISE-WATCH-02 + WATCH-04: `ibis_status` round-trips through Moshi
+     * as a JSON int array and keeps the same element order.
+     */
+    @Test
+    fun ibis_status_array_round_trips_through_moshi() {
+        val original = MeasurementEntity(
+            localId = "L-STATUS-1",
+            timestamp = 1_719_760_272_000L,
+            heartRateBpm = 72,
+            spo2Percent = null,
+            ibisMs = listOf(800L, 820L, 900L),
+            ibisStatus = listOf(1, 0, 1),
+        )
+
+        val adapter = moshi.adapter(MeasurementEntity::class.java)
+        val json = adapter.toJson(original)
+        assertTrue(
+            "body must serialize ibis_status as JSON int array, got: $json",
+            json.contains("\"ibis_status\":[1,0,1]"),
+        )
+
+        val parsed = adapter.fromJson(json)
+        assertNotNull("deserialized row must not be null", parsed)
+        assertEquals(
+            "ibisStatus must round-trip through Moshi",
+            listOf(1, 0, 1),
+            parsed!!.ibisStatus,
+        )
+        assertEquals(listOf(800L, 820L, 900L), parsed.ibisMs)
+    }
+
+    /**
+     * REQ-NOISE-WATCH-04: `ibis_status = null` is either omitted or written
+     * as explicit null on the wire.
+     */
+    @Test
+    fun null_ibis_status_round_trips_as_omitted_or_explicit_null() {
+        val original = MeasurementEntity(
+            localId = "L-STATUS-2",
+            timestamp = 1_719_760_272_000L,
+            heartRateBpm = 72,
+            spo2Percent = null,
+            ibisMs = listOf(800L, 820L),
+            ibisStatus = null,
+        )
+
+        val json = moshi.adapter(MeasurementEntity::class.java).toJson(original)
+        assertTrue(
+            "body must either omit ibis_status or write it as null, got: $json",
+            !json.contains("\"ibis_status\":") || json.contains("\"ibis_status\":null"),
+        )
+    }
+
+    /**
+     * REQ-NOISE-WATCH-04: an explicit JSON `null` for `ibis_status` parses
+     * back to a Kotlin null.
+     */
+    @Test
+    fun explicit_null_ibis_status_deserializes_to_null() {
+        val json = """
+            {
+              "local_id":"L-STATUS-3",
+              "timestamp":"2024-06-30T15:11:12Z",
+              "heart_rate_bpm":72,
+              "ibis_ms":[800,820],
+              "ibis_status":null
+            }
+        """.trimIndent()
+
+        val parsed = moshi.adapter(MeasurementEntity::class.java).fromJson(json)
+        assertNotNull(parsed)
+        assertNull(parsed!!.ibisStatus)
     }
 }

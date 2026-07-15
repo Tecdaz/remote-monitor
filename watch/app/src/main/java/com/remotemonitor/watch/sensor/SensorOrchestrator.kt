@@ -107,36 +107,20 @@ class SensorOrchestrator(
                                     _healthState.value = SensorHealth.OffWrist
                                 }
                             }
-                            // REQ-WATCH-HR-IBI-08: the Samsung SDK tags each
-                            // IBI with a quality flag in IBI_STATUS_LIST:
-                            //   0 = REJECT (noisy / invalid)
-                            //   1 = ACCEPT (clean)
-                            // Only ACCEPT IBIs reach the backend so HRV
-                            // metrics (RMSSD, SDNN, Poincaré, PSD) are
-                            // computed on veridical data.
-                            val cleanIbis = bpmReading?.let { reading ->
-                                val ibis = reading.ibis ?: return@let null
-                                val status = reading.ibisStatus
-                                if (status == null || status.size != ibis.size) {
-                                    // Defensive: if status is missing or
-                                    // mismatched, keep all IBIs rather
-                                    // than silently dropping valid data.
-                                    ibis
-                                } else {
-                                    val accepted = ibis.filterIndexed { i, _ -> status[i] != 0 }
-                                    val dropped = ibis.size - accepted.size
-                                    if (dropped > 0) {
-                                        Log.d(TAG, "Filtered $dropped noisy IBI(s) (REJECT); kept ${accepted.size}")
-                                    }
-                                    accepted.ifEmpty { null }
-                                }
-                            }
+                            // REQ-NOISE-WATCH-01: preserve the raw IBI array
+                            // and the matching quality flags. Filtering by
+                            // status now happens on the backend / frontend so
+                            // clinicians can toggle raw vs. filtered views.
+                            // 0 = REJECT (noisy / invalid); non-zero = ACCEPT.
+                            val ibis = bpmReading?.ibis
+                            val ibisStatus = bpmReading?.ibisStatus?.takeIf { it.size == ibis?.size ?: 0 }
                             val row = MeasurementEntity(
                                 localId = UUID.randomUUID().toString(),
                                 timestamp = now,
                                 heartRateBpm = bpm,
                                 spo2Percent = null,
-                                ibisMs = cleanIbis,
+                                ibisMs = ibis,
+                                ibisStatus = ibisStatus,
                             )
                             dao.insert(row)
                         }

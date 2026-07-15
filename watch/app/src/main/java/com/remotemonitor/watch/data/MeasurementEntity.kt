@@ -24,12 +24,17 @@ import com.squareup.moshi.Json
  * **`ibis_ms`**: the raw IBI array from the Samsung sensor, delivered as-is
  * without any transformation. Persisted via [IbiListConverter] as a JSON
  * string column; serialized on the wire as a JSON int array by Moshi.
+ *
+ * **`ibis_status`**: per-beat quality flags matching `ibis_ms` element-for-
+ * element. Persisted via [IbiStatusConverter] as a JSON string column;
+ * `0` = noisy/rejected, any non-zero value = accepted. `null` when the
+ * SDK did not provide a matching status array.
  */
 @Entity(
     tableName = "measurements",
     indices = [Index(value = ["timestamp"])],
 )
-@TypeConverters(IbiListConverter::class)
+@TypeConverters(IbiListConverter::class, IbiStatusConverter::class)
 data class MeasurementEntity(
     @PrimaryKey
     @ColumnInfo(name = "local_id")
@@ -48,4 +53,7 @@ data class MeasurementEntity(
     @ColumnInfo(name = "ibis_ms")
     @Json(name = "ibis_ms")
     val ibisMs: List<Long>? = null,
+    @ColumnInfo(name = "ibis_status")
+    @Json(name = "ibis_status")
+    val ibisStatus: List<Int>? = null,
 )

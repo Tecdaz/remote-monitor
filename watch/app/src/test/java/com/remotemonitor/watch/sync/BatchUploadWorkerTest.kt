@@ -341,6 +341,44 @@ class BatchUploadWorkerTest {
         )
     }
 
+    /**
+     * REQ-NOISE-WATCH-02 + WATCH-04: the POST body must serialize
+     * `ibis_status` as a JSON int array alongside `ibis_ms`.
+     */
+    @Test
+    fun `S05_9 ibis_status serialized alongside ibis_ms`() = runTest {
+        val l1 = UUID.randomUUID().toString()
+        coEvery { dao.selectPending(1000) } returns listOf(
+            MeasurementEntity(
+                localId = l1,
+                timestamp = 1_719_760_272_000L,
+                heartRateBpm = 72,
+                spo2Percent = null,
+                ibisMs = listOf(800L, 820L, 900L),
+                ibisStatus = listOf(1, 0, 1),
+            )
+        )
+        coEvery { identity.getBedNumber() } returns "3"
+        coEvery { identity.getPatientId() } returns "uuid-1"
+        every { deviceInfo.isFirstUpload() } returns false
+
+        server.enqueue(ok("""{"accepted_ids":["$l1"],"rejected":[]}"""))
+
+        worker.runOnce()
+
+        val recorded = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
+            ?: error("Expected exactly one HTTP request; got 0")
+        val body = recorded.body.readUtf8()
+        assertTrue(
+            "body must contain \"ibis_ms\":[800,820,900], got: $body",
+            body.contains("\"ibis_ms\":[800,820,900]"),
+        )
+        assertTrue(
+            "body must contain \"ibis_status\":[1,0,1], got: $body",
+            body.contains("\"ibis_status\":[1,0,1]"),
+        )
+    }
+
     // --- wear-bed-picker-onboarding D13 silent-mode guard --------------
 
     /**

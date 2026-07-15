@@ -139,6 +139,114 @@ class SensorOrchestratorTest {
     }
 
     /**
+     * REQ-NOISE-WATCH-01 + WATCH-05: a mixed-status reading keeps every
+     * beat (no filtering) and stores the matching status array unchanged.
+     */
+    @Test
+    fun `orchestrator preserves raw ibis and matching ibisStatus unchanged`() = runTest(UnconfinedTestDispatcher()) {
+        val heartRateSensor = FakeHeartRateSensor(
+            flowOf(
+                HeartRateReading(
+                    beatsPerMinute = 72,
+                    timestampMillis = 1_700_000_000_000L,
+                    ibis = listOf(800L, 820L, 900L),
+                    ibisStatus = listOf(1, 0, 1),
+                ),
+            )
+        )
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        val dao = mockk<MeasurementDao>(relaxed = true)
+        val captured = mutableListOf<MeasurementEntity>()
+        coEvery { dao.insert(capture(captured)) } returns Unit
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = heartRateSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        orchestrator.start(backgroundScope)
+        testScheduler.advanceUntilIdle()
+
+        val row = captured.single { it.heartRateBpm == 72 }
+        assertEquals("noisy beats must NOT be dropped", listOf(800L, 820L, 900L), row.ibisMs)
+        assertEquals(listOf(1, 0, 1), row.ibisStatus)
+    }
+
+    /**
+     * REQ-NOISE-WATCH-05: when the SDK omits `ibisStatus`, the entity keeps
+     * all IBIs and stores `ibis_status` as null.
+     */
+    @Test
+    fun `null ibisStatus keeps all ibis and stores null status`() = runTest(UnconfinedTestDispatcher()) {
+        val heartRateSensor = FakeHeartRateSensor(
+            flowOf(
+                HeartRateReading(
+                    beatsPerMinute = 72,
+                    timestampMillis = 1_700_000_000_000L,
+                    ibis = listOf(800L, 820L),
+                    ibisStatus = null,
+                ),
+            )
+        )
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        val dao = mockk<MeasurementDao>(relaxed = true)
+        val captured = mutableListOf<MeasurementEntity>()
+        coEvery { dao.insert(capture(captured)) } returns Unit
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = heartRateSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        orchestrator.start(backgroundScope)
+        testScheduler.advanceUntilIdle()
+
+        val row = captured.single { it.heartRateBpm == 72 }
+        assertEquals(listOf(800L, 820L), row.ibisMs)
+        assertNull("null ibisStatus must produce null ibis_status", row.ibisStatus)
+    }
+
+    /**
+     * REQ-NOISE-WATCH-05: a size mismatch between `ibis` and `ibisStatus`
+     * is treated as missing status — keep all IBIs and store null.
+     */
+    @Test
+    fun `size mismatched ibisStatus keeps all ibis and stores null status`() = runTest(UnconfinedTestDispatcher()) {
+        val heartRateSensor = FakeHeartRateSensor(
+            flowOf(
+                HeartRateReading(
+                    beatsPerMinute = 72,
+                    timestampMillis = 1_700_000_000_000L,
+                    ibis = listOf(800L, 820L, 900L),
+                    ibisStatus = listOf(1, 0),
+                ),
+            )
+        )
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        val dao = mockk<MeasurementDao>(relaxed = true)
+        val captured = mutableListOf<MeasurementEntity>()
+        coEvery { dao.insert(capture(captured)) } returns Unit
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = heartRateSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        orchestrator.start(backgroundScope)
+        testScheduler.advanceUntilIdle()
+
+        val row = captured.single { it.heartRateBpm == 72 }
+        assertEquals(listOf(800L, 820L, 900L), row.ibisMs)
+        assertNull("mismatched ibisStatus must produce null ibis_status", row.ibisStatus)
+    }
+
+    /**
      * HR-only mode (product decision 2026-07-01): the orchestrator
      * MUST NOT call `spO2Provider.read()` — that call is what created
      * the binder race with the continuous HR provider. We advance

@@ -588,6 +588,64 @@ class SamsungHeartRateProviderTest {
         }
 
     /**
+     * REQ-NOISE-WATCH-01: mixed status values (e.g. [1,0,1]) are forwarded
+     * unchanged from the SDK to [HeartRateReading.ibisStatus]. The watch
+     * no longer filters rejected beats locally.
+     */
+    @Test
+    fun `read forwards mixed ibisStatus unchanged`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val connectionListenerSlot = slot<ConnectionListener>()
+            val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+            val dataPoint = mockk<DataPoint>()
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE) } returns 72
+            every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_LIST) } returns
+                listOf(800, 820, 900)
+            every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns
+                listOf(1, 0, 1)
+
+            val tracker = mockk<HealthTracker>(relaxed = true)
+            every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
+                trackerListenerSlot.captured.onDataReceived(listOf(dataPoint))
+            }
+
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            every { service.connectService() } answers {
+                connectionListenerSlot.captured.onConnectionSuccess()
+            }
+            every {
+                service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
+            } returns tracker
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { listener, _ ->
+                    connectionListenerSlot.captured = listener
+                    service
+                }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+                clock = { 1_700_000_000_000L },
+            )
+
+            val emissions = mutableListOf<HeartRateReading?>()
+            val job = backgroundScope.launch {
+                provider.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            val reading = emissions.single()!!
+            assertEquals(listOf(800L, 820L, 900L), reading.ibis)
+            assertEquals(listOf(1, 0, 1), reading.ibisStatus)
+
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+        }
+
+    /**
      * REQ-WATCH-HR-IBI-02 S02 / null-tolerance: a `HeartRateSet`
      * DataPoint whose `IBI_LIST` and `IBI_STATUS_LIST` are null MUST
      * still emit a reading (we don't drop the BPM tick just because

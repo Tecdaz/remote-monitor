@@ -23,3 +23,25 @@ class IbiListConverter {
             (0 until arr.length()).map { arr.getLong(it) }
         }
 }
+
+/**
+ * Room [TypeConverter] for `List<Int>?` ↔ JSON string column.
+ *
+ * The `ibis_status` column holds the per-beat quality flags from the Samsung
+ * sensor's `IBI_STATUS_LIST`. `0` = noisy/rejected; any non-zero value =
+ * accepted. The list is persisted as a JSON array string in Room and
+ * serialized on the wire as a JSON int array by Moshi.
+ */
+class IbiStatusConverter {
+
+    @TypeConverter
+    fun fromIbiStatus(value: List<Int>?): String? =
+        value?.let { JSONArray(it).toString() }
+
+    @TypeConverter
+    fun toIbiStatus(value: String?): List<Int>? =
+        value?.let { raw ->
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getInt(it) }
+        }
+}
