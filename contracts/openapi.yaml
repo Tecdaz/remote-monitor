@@ -246,7 +246,7 @@ components:
           type: [array, "null"]
           items: { type: integer, minimum: -1, maximum: 2147483647 }
           default: null
-          description: "Per-beat Samsung IBI quality flag (IBI_STATUS_LIST, available from SDK v1.2.0). `0` = normal/valid beat; `-1` = error/invalid beat. An IBI is also considered invalid when its `ibis_ms` value is `0` (sentinel). Length must match `ibis_ms` when present; `null` for devices that do not provide status."
+          description: "Samsung IBI status. 0=valid beat, -1=error/noise. Beats with status==-1 are persisted as-is for downstream filtering; per-display filtering is the consumer's responsibility."
     Measurement:
       allOf:
         - $ref: "#/components/schemas/MeasurementBatch"

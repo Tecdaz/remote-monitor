@@ -52,18 +52,15 @@ class MeasurementBatch(BaseModel):
         description="Raw inter-beat intervals in milliseconds (Samsung IBI_LIST).",
     )
     # Per-beat quality flags from Samsung IBI_STATUS_LIST (SDK >= 1.2.0):
-    # 0 = normal/valid beat; -1 = error/invalid beat. An IBI is also
-    # considered invalid when its `ibis_ms` value is 0 (Samsung sentinel
-    # for "no data"); we enforce that pair rule below in the validator.
-    # Length must match `ibis_ms` when present.
+    # 0 = normal/valid beat; -1 = error/noise. Noisy beats are persisted
+    # as-is; filtering is a display-layer concern.
     ibis_status: list[int] | None = Field(
         default=None,
         description=(
-            "Per-beat quality flags from the Samsung sensor "
-            "(IBI_STATUS_LIST): 0 = normal/valid beat; -1 = "
-            "error/invalid beat. Length must match `ibis_ms` when "
-            "present. Combined with `ibis_ms`: a beat is invalid when "
-            "`ibis_status[i] != 0` OR `ibis_ms[i] == 0`."
+            "Samsung IBI status. 0=valid beat, -1=error/noise. "
+            "Beats with status==-1 are persisted as-is for downstream "
+            "filtering; per-display filtering is the consumer's "
+            "responsibility."
         ),
     )
 
