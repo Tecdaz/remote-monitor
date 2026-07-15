@@ -95,18 +95,6 @@ class MeasurementBatch(BaseModel):
             # introduce in later releases).
             if not (-1 <= x <= 2_147_483_647):
                 raise ValueError(f"ibis_status value {x} out of [-1, 2147483647]")
-        # Samsung pair rule: a beat is invalid when status != 0 OR
-        # ibis == 0. Both arrays are present and length-matched here, so
-        # we walk them in lockstep and reject if any beat carries an
-        # invalid marker. This matches the Samsung codelab's
-        # `isIBIValid(ibiStatus, ibiValue) = ibiStatus == 0 && ibiValue != 0`.
-        if ibis is not None:
-            for i, (s, b) in enumerate(zip(v, ibis)):
-                if s != 0 or b == 0:
-                    raise ValueError(
-                        f"invalid IBI beat at index {i}: status={s}, ibis_ms={b} "
-                        "(Samsung: valid iff status==0 AND ibis_ms!=0)"
-                    )
         return v
 
 
