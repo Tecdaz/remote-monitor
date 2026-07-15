@@ -46,6 +46,7 @@ help:
 	@echo
 	@echo "Lifecycle:"
 	@echo "  make up                 docker compose up -d (postgres + backend + frontend)"
+	@echo "  make rebuild            rebuild backend+frontend images, up -d, run migrations"
 	@echo "  make down               docker compose down"
 	@echo "  make ngrok-up           start ngrok tunnel in background (logs: $(NGROK_LOG))"
 	@echo "  make ngrok-down         kill the ngrok tunnel"
@@ -88,13 +89,40 @@ help:
 	@echo "All targets assume docker + adb + (ngrok | ngrok URL present in env.test) are available."
 
 # --- Lifecycle ------------------------------------------------------------
-.PHONY: up down
+.PHONY: up down rebuild
 up:
 	docker compose up -d
 	@echo
 	@echo "Backend ready:  http://localhost:8000"
 	@echo "Frontend ready: http://localhost:3000"
 	@echo "Postgres ready: localhost:5432"
+
+# Rebuild the backend + frontend images with the current source tree and
+# (re)start the containers. Necessary when local code changed but `make up`
+# alone would reuse the cached image from a previous build.
+#
+# Also runs `alembic upgrade head` inside the backend container — the
+# backend image itself does NOT auto-apply migrations on startup (see the
+# Dockerfile's CMD), so any new migration lands here.
+#
+# Postgres is left running (volume untouched) so persisted clinical data
+# survives across rebuilds. Use `make backend-db-clean` if you also want
+# to wipe the DB.
+rebuild:
+	docker compose build backend frontend
+	docker compose up -d backend frontend
+	@echo
+	@echo "Waiting for backend to be ready..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if curl -sS --max-time 2 http://localhost:8000/api/v1/readyz >/dev/null 2>&1; then \
+			echo "Backend is ready."; \
+			break; \
+		fi; \
+		sleep 2; \
+	done
+	docker exec remote-monitor-backend-1 bash -lc "cd /app && uv run alembic upgrade head"
+	@echo
+	@echo "Rebuild complete. Backend: http://localhost:8000  Frontend: http://localhost:3000"
 
 down:
 	docker compose down
