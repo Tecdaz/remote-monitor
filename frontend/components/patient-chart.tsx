@@ -145,16 +145,16 @@ export function TachogramChart({
   )
 
   if (data.length === 0) {
-    // Distinguish "no data yet" from "all beats were filtered as noisy":
+    // Distinguish "no data yet" from "all beats were filtered as invalid":
     // if we're in filtered mode and there's at least one measurement
     // with ibis_status present, the sensor is flagging every beat as
-    // rejected and the chart is correctly empty — show that explicitly
-    // so the user knows it's a signal-quality issue, not a missing-data
-    // issue.
+    // invalid (status != 0) and the chart is correctly empty — show
+    // that explicitly so the user knows it's a signal-quality issue,
+    // not a missing-data issue.
     const hasAnyStatus = measurements.some((m) => m.ibis_status !== null)
     const message =
       mode === 'filtered' && hasAnyStatus
-        ? 'All beats in the last 60s are flagged as noisy'
+        ? 'All beats in the last 60s are flagged as invalid by the sensor'
         : undefined
     return <ChartEmptyState message={message} />
   }

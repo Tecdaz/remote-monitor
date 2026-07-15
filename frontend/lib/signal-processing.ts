@@ -114,7 +114,16 @@ export function selectIBISeries(
     localIbis.reverse()
 
     for (let i = 0; i < localIbis.length; i++) {
-      if (filtering && status[i] === 0) continue
+      // Samsung IBI_STATUS_LIST convention (SDK >= 1.2.0):
+      //   0   = normal/valid beat
+      //   -1  = error/invalid beat
+      // A beat is also invalid when its ibis value is 0 (sentinel
+      // for "no IBI data"). When status is present AND we're in
+      // filtered mode, drop every beat the sensor flagged invalid
+      // AND every beat whose ibis value is the 0 sentinel.
+      if (filtering) {
+        if (status[i] !== 0 || localIbis[i] === 0) continue
+      }
       times.push(localTimes[i])
       ibis.push(localIbis[i])
     }

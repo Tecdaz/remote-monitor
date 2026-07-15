@@ -111,7 +111,9 @@ class SensorOrchestrator(
                             // and the matching quality flags. Filtering by
                             // status now happens on the backend / frontend so
                             // clinicians can toggle raw vs. filtered views.
-                            // 0 = REJECT (noisy / invalid); non-zero = ACCEPT.
+                            // Samsung IBI_STATUS_LIST (SDK >= 1.2.0):
+                            //   0  = normal/valid beat (accept)
+                            //  -1  = error/invalid beat (reject)
                             val ibis = bpmReading?.ibis
                             val ibisStatus = bpmReading?.ibisStatus?.takeIf { it.size == ibis?.size ?: 0 }
                             val row = MeasurementEntity(

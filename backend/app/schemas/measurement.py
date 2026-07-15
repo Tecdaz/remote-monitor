@@ -51,14 +51,19 @@ class MeasurementBatch(BaseModel):
         default=None,
         description="Raw inter-beat intervals in milliseconds (Samsung IBI_LIST).",
     )
-    # Per-beat quality flags: 0 = noisy/rejected, non-zero = accepted/clean.
+    # Per-beat quality flags from Samsung IBI_STATUS_LIST (SDK >= 1.2.0):
+    # 0 = normal/valid beat; -1 = error/invalid beat. An IBI is also
+    # considered invalid when its `ibis_ms` value is 0 (Samsung sentinel
+    # for "no data"); we enforce that pair rule below in the validator.
     # Length must match `ibis_ms` when present.
     ibis_status: list[int] | None = Field(
         default=None,
         description=(
-            "Per-beat quality flags from the Samsung sensor: "
-            "0 = noisy/rejected, non-zero = accepted/clean. "
-            "Length must match `ibis_ms` when present."
+            "Per-beat quality flags from the Samsung sensor "
+            "(IBI_STATUS_LIST): 0 = normal/valid beat; -1 = "
+            "error/invalid beat. Length must match `ibis_ms` when "
+            "present. Combined with `ibis_ms`: a beat is invalid when "
+            "`ibis_status[i] != 0` OR `ibis_ms[i] == 0`."
         ),
     )
 
@@ -68,6 +73,9 @@ class MeasurementBatch(BaseModel):
         if v is None:
             return v
         for x in v:
+            # Samsung SDK uses 0 as a sentinel for "no IBI data" within
+            # the list; we reject it at the boundary so the array is
+            # uniformly in [1, 5000] for downstream HRV math.
             if not (1 <= x <= 5000):
                 raise ValueError(f"ibis_ms value {x} out of [1, 5000]")
         return v
@@ -81,8 +89,24 @@ class MeasurementBatch(BaseModel):
         if ibis is not None and len(v) != len(ibis):
             raise ValueError("ibis_status length must match ibis_ms")
         for x in v:
-            if not (0 <= x <= 2_147_483_647):
-                raise ValueError(f"ibis_status value {x} out of [0, 2147483647]")
+            # Samsung convention: 0 = normal, -1 = error. We accept the
+            # documented sentinel plus any non-negative value as a future-
+            # proof upper bound (e.g. additional error codes the SDK may
+            # introduce in later releases).
+            if not (-1 <= x <= 2_147_483_647):
+                raise ValueError(f"ibis_status value {x} out of [-1, 2147483647]")
+        # Samsung pair rule: a beat is invalid when status != 0 OR
+        # ibis == 0. Both arrays are present and length-matched here, so
+        # we walk them in lockstep and reject if any beat carries an
+        # invalid marker. This matches the Samsung codelab's
+        # `isIBIValid(ibiStatus, ibiValue) = ibiStatus == 0 && ibiValue != 0`.
+        if ibis is not None:
+            for i, (s, b) in enumerate(zip(v, ibis)):
+                if s != 0 or b == 0:
+                    raise ValueError(
+                        f"invalid IBI beat at index {i}: status={s}, ibis_ms={b} "
+                        "(Samsung: valid iff status==0 AND ibis_ms!=0)"
+                    )
         return v
 
 

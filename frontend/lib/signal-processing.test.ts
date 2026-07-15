@@ -25,14 +25,19 @@ function makeMeasurement(
 }
 
 describe('selectBeatsForChart', () => {
+  // Samsung IBI_STATUS_LIST convention (SDK >= 1.2.0):
+  //   0   = normal/valid beat
+  //   -1  = error/invalid beat
+  // A beat is also invalid when its ibis value is 0 (sentinel for "no data").
   it('keeps every beat in raw mode', () => {
-    const measurements = [makeMeasurement(10_000, [800, 820, 900], [1, 0, 1])]
+    const measurements = [makeMeasurement(10_000, [800, 820, 900], [0, -1, 0])]
     const beats = selectBeatsForChart(measurements, 'raw')
     expect(beats.map((b) => b.ibiMs)).toEqual([800, 820, 900])
   })
 
   it('drops rejected beats when filtered', () => {
-    const measurements = [makeMeasurement(10_000, [800, 820, 900], [1, 0, 1])]
+    // status [0, -1, 0]: middle beat flagged invalid by sensor -> dropped.
+    const measurements = [makeMeasurement(10_000, [800, 820, 900], [0, -1, 0])]
     const beats = selectBeatsForChart(measurements, 'filtered')
     expect(beats.map((b) => b.ibiMs)).toEqual([800, 900])
   })
@@ -44,9 +49,16 @@ describe('selectBeatsForChart', () => {
   })
 
   it('does not crash when ibis_status length is mismatched', () => {
-    const measurements = [makeMeasurement(10_000, [800, 820], [1])]
+    const measurements = [makeMeasurement(10_000, [800, 820], [0])]
     const beats = selectBeatsForChart(measurements, 'filtered')
     expect(beats.map((b) => b.ibiMs)).toEqual([800, 820])
+  })
+
+  it('drops beats whose ibis value is the 0 sentinel even when status is 0', () => {
+    // Samsung pair rule: ibis_ms == 0 is invalid even when status == 0.
+    const measurements = [makeMeasurement(10_000, [800, 0, 900], [0, 0, 0])]
+    const beats = selectBeatsForChart(measurements, 'filtered')
+    expect(beats.map((b) => b.ibiMs)).toEqual([800, 900])
   })
 
   it('caps the chart to the last 60 seconds by beat timestamp', () => {
@@ -65,7 +77,7 @@ describe('selectBeatsForChart', () => {
   it('keeps multiple beats within the 60-second window', () => {
     const now = 120_000
     const ibisMs = [1000, 1000, 1000, 1000] // span 3 seconds
-    const measurement = makeMeasurement(now, ibisMs, [1, 1, 1, 1])
+    const measurement = makeMeasurement(now, ibisMs, [0, 0, 0, 0])
     const beats = selectBeatsForChart([measurement], 'filtered')
 
     expect(beats).toHaveLength(4)
@@ -77,7 +89,8 @@ describe('selectBeatsForChart', () => {
 
 describe('computePoincare', () => {
   it('follows the filtered/raw mode', () => {
-    const measurement = makeMeasurement(10_000, [800, 820, 900], [1, 0, 1])
+    // status [0, -1, 0]: middle beat invalid -> dropped -> 2 usable beats.
+    const measurement = makeMeasurement(10_000, [800, 820, 900], [0, -1, 0])
 
     const raw = computePoincare([measurement], 'raw')
     expect(raw).toHaveLength(2)
@@ -90,7 +103,7 @@ describe('computePoincare', () => {
   })
 
   it('returns an empty array when fewer than two usable beats remain', () => {
-    const measurement = makeMeasurement(10_000, [800], [1])
+    const measurement = makeMeasurement(10_000, [800], [0])
     expect(computePoincare([measurement], 'filtered')).toEqual([])
   })
 })
@@ -98,8 +111,10 @@ describe('computePoincare', () => {
 describe('computePSD', () => {
   it('returns bins for enough raw beats and an empty array when filtering drops below the minimum', () => {
     // 8 identical beats gives the PSD guard exactly enough raw data.
+    // Alternating valid/invalid status halves the filtered count below the
+    // PSD min-beat guard of 8.
     const ibisMs = Array.from({ length: 8 }, () => 800)
-    const status = [1, 0, 1, 0, 1, 0, 1, 0]
+    const status = [0, -1, 0, -1, 0, -1, 0, -1]
     const measurement = makeMeasurement(10_000, ibisMs, status)
 
     const raw = computePSD([measurement], 'raw')

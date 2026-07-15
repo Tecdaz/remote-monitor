@@ -534,14 +534,18 @@ class TestIngestService:
     async def test_upload_persists_ibis_status_to_clinical_measurements(
         self, session: AsyncSession
     ) -> None:
-        """REQ-NOISE-BE-03: a batch with ibis_status=[1,0,1] stores the array."""
+        """REQ-NOISE-BE-03: a batch with valid ibis_status stores the array.
+
+        Samsung IBI_STATUS_LIST convention (SDK >= 1.2.0): 0 = normal/valid,
+        -1 = error/invalid. A beat is also invalid when ibis_ms == 0.
+        """
         path_pid = uuid4()
         local_id = uuid4()
         items = [
             _valid_item_with_ibis(
                 local_id,
                 ibis_ms=[800, 820, 900],
-                ibis_status=[1, 0, 1],
+                ibis_status=[0, 0, 0],
             )
         ]
         response = await upload_measurements(
@@ -565,7 +569,7 @@ class TestIngestService:
             row = result.one_or_none()
         assert row is not None, "row not found in clinical.measurements"
         assert list(row.ibis_ms) == [800, 820, 900]
-        assert list(row.ibis_status) == [1, 0, 1]
+        assert list(row.ibis_status) == [0, 0, 0]
 
     async def test_upload_without_ibis_status_stores_null(
         self, session: AsyncSession
@@ -626,12 +630,12 @@ class TestIngestService:
     async def test_upload_rejects_ibis_status_value_out_of_range(
         self, session: AsyncSession
     ) -> None:
-        """REQ-NOISE-BE-02: ibis_status values must be in [0, 2^31-1]."""
+        """REQ-NOISE-BE-02: ibis_status values must be in [-1, 2^31-1]."""
         path_pid = uuid4()
         items = [
             _valid_item_with_ibis(
                 ibis_ms=[800, 820],
-                ibis_status=[1, -1],
+                ibis_status=[0, -2],  # -2 is below the Samsung-documented floor
             )
         ]
         response = await upload_measurements(
@@ -654,7 +658,7 @@ class TestIngestService:
             _valid_item_with_ibis(
                 local_id,
                 ibis_ms=[800, 820],
-                ibis_status=[1, 0],
+                ibis_status=[0, 0],  # Samsung: both beats normal/valid
             )
         ]
         first = await upload_measurements(
@@ -680,7 +684,60 @@ class TestIngestService:
             )
         ).scalars().all()
         assert len(meas) == 1
-        assert list(meas[0].ibis_status) == [1, 0]
+        assert list(meas[0].ibis_status) == [0, 0]
+
+    async def test_upload_rejects_mixed_invalid_beat_pair(
+        self, session: AsyncSession
+    ) -> None:
+        """Samsung pair rule: a beat is invalid iff status != 0 OR ibis == 0.
+
+        A mixed batch (one normal, one error) must be rejected as a whole
+        because the pair validator walks both arrays in lockstep.
+        """
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                ibis_ms=[800, 820],
+                ibis_status=[0, -1],  # second beat flagged as error by sensor
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="1",  # valid bed 1..5
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 0
+        assert len(response.rejected) == 1
+        assert "invalid IBI beat" in response.rejected[0].reason
+        assert "status=-1" in response.rejected[0].reason
+
+    async def test_upload_rejects_ibis_zero_sentinel(
+        self, session: AsyncSession
+    ) -> None:
+        """Samsung sentinel: ibis_ms == 0 means 'no IBI data' and is invalid
+        even when status == 0. The existing ibis_ms clamp ([1, 5000])
+        catches this case at field-validation time, BEFORE the pair rule
+        runs, so the rejection reason names ibis_ms rather than the pair
+        rule.
+        """
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                ibis_ms=[800, 0],  # second beat is the 0 sentinel
+                ibis_status=[0, 0],
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="2",  # valid bed 1..5
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 0
+        assert len(response.rejected) == 1
+        # Field-level clamp fires first; pair rule is unreachable here.
+        assert "ibis_ms value 0" in response.rejected[0].reason
 
     # --- patient inactivity refresh (sdd/feat-patient-inactivity-sweep) --
 
@@ -1325,7 +1382,7 @@ class TestMeasurementsRouter:
         item = _valid_item_with_ibis(
             local_id,
             ibis_ms=[800, 820, 900],
-            ibis_status=[1, 0, 1],
+            ibis_status=[0, 0, 0],  # all valid (Samsung: 0 = normal)
         )
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
@@ -1338,7 +1395,7 @@ class TestMeasurementsRouter:
         assert response.status_code == 200
         body = response.json()
         assert len(body["items"]) == 1
-        assert body["items"][0]["ibis_status"] == [1, 0, 1]
+        assert body["items"][0]["ibis_status"] == [0, 0, 0]
 
     async def test_get_measurement_by_id_includes_ibis_status(
         self, client: AsyncClient
@@ -1349,7 +1406,7 @@ class TestMeasurementsRouter:
         item = _valid_item_with_ibis(
             local_id,
             ibis_ms=[800, 820],
-            ibis_status=[1, 0],
+            ibis_status=[0, 0],
         )
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
@@ -1365,4 +1422,4 @@ class TestMeasurementsRouter:
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["ibis_status"] == [1, 0]
+        assert body["ibis_status"] == [0, 0]

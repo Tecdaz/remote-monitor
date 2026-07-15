@@ -27,7 +27,8 @@ import com.squareup.moshi.Json
  *
  * **`ibis_status`**: per-beat quality flags matching `ibis_ms` element-for-
  * element. Persisted via [IbiStatusConverter] as a JSON string column;
- * `0` = noisy/rejected, any non-zero value = accepted. `null` when the
+ * `0` = normal/valid beat, `-1` = error/invalid beat (Samsung SDK
+ * convention). `null` when the
  * SDK did not provide a matching status array.
  */
 @Entity(

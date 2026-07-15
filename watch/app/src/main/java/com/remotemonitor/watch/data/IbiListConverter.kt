@@ -28,8 +28,9 @@ class IbiListConverter {
  * Room [TypeConverter] for `List<Int>?` ↔ JSON string column.
  *
  * The `ibis_status` column holds the per-beat quality flags from the Samsung
- * sensor's `IBI_STATUS_LIST`. `0` = noisy/rejected; any non-zero value =
- * accepted. The list is persisted as a JSON array string in Room and
+ * sensor's `IBI_STATUS_LIST` (SDK >= 1.2.0). `0` = normal/valid beat;
+ * `-1` = error/invalid beat (Samsung may introduce additional codes
+ * later). The list is persisted as a JSON array string in Room and
  * serialized on the wire as a JSON int array by Moshi.
  */
 class IbiStatusConverter {

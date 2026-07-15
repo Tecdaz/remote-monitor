@@ -12,6 +12,11 @@ export interface Measurement {
   heart_rate_bpm: number | null;
   spo2_percent: number | null;
   ibis_ms: number[] | null;
+  /**
+   * Per-beat Samsung IBI quality flag (IBI_STATUS_LIST).
+   * 0 = normal/valid; -1 = error/invalid. Length matches ibis_ms.
+   * null when the device does not provide status.
+   */
   ibis_status: number[] | null;
   received_at: string;
 }

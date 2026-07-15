@@ -490,7 +490,7 @@ class TestEndToEnd:
         local_id = uuid4()
         item = _valid_measurement(local_id)
         item["ibis_ms"] = [800, 820, 900]
-        item["ibis_status"] = [1, 0, 1]
+        item["ibis_status"] = [0, 0, 0]  # all valid (Samsung: 0 = normal)
 
         with TestClient(app) as client:
             with client.websocket_connect(
@@ -514,8 +514,8 @@ class TestEndToEnd:
                 assert "ibis_status" in payload["data"], (
                     f"ibis_status missing from WS payload: {payload['data']!r}"
                 )
-                assert payload["data"]["ibis_status"] == [1, 0, 1], (
-                    f"expected ibis_status=[1, 0, 1], got "
+                assert payload["data"]["ibis_status"] == [0, 0, 0], (
+                    f"expected ibis_status=[0, 0, 0], got "
                     f"{payload['data'].get('ibis_status')!r}"
                 )
 
