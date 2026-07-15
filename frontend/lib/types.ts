@@ -29,6 +29,7 @@ export interface Measurement {
   heart_rate_bpm: number | null
   spo2_percent: number | null
   ibis_ms: number[] | null
+  ibis_status: number[] | null
 }
 
 export interface MeasurementPage {

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   LineChart,
@@ -17,8 +17,14 @@ import { usePatientChart } from '../hooks/use-patient-chart'
 import { usePatientWebSocket } from '../hooks/use-patient-websocket'
 import { fetchPatient } from '../lib/api'
 import { patientKey } from '../lib/query-keys'
-import { computePoincare, computePSD, HRV_BANDS } from '../lib/signal-processing'
+import {
+  computePoincare,
+  computePSD,
+  HRV_BANDS,
+  selectBeatsForChart,
+} from '../lib/signal-processing'
 import type { ConnectionState } from '../lib/connection-state'
+import type { BeatMode } from '../lib/signal-processing'
 import type { Measurement } from '../lib/types'
 
 function formatTime(iso: string): string {
@@ -83,47 +89,60 @@ export function ChartEmptyState() {
   )
 }
 
-interface TachogramPoint {
-  timestamp: string
-  ibiMs: number
-}
+function ModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: BeatMode
+  onChange: (mode: BeatMode) => void
+  disabled: boolean
+}) {
+  const base =
+    'px-3 py-1 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-gray-900'
+  const active = 'bg-gray-700 text-white'
+  const inactive = 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
 
-/**
- * Explode each measurement's raw ibis_ms array into individual beat points
- * with reconstructed timestamps. No transformation on the values — the
- * sensor's IBI_LIST is delivered as-is. Timestamp reconstruction is purely
- * for tachogram visualization; the raw measurement timestamp is preserved
- * in the API.
- */
-function measurementsToTachogram(measurements: Measurement[]): TachogramPoint[] {
-  const points: TachogramPoint[] = []
-
-  const sorted = [...measurements].sort((a, b) =>
-    a.timestamp.localeCompare(b.timestamp),
+  return (
+    <div className="flex items-center gap-2" role="group" aria-label="Beat filter">
+      <span className="text-sm text-gray-400">View:</span>
+      <button
+        type="button"
+        onClick={() => onChange('raw')}
+        aria-pressed={mode === 'raw'}
+        className={[`rounded-l-md border border-gray-700`, base, mode === 'raw' ? active : inactive].join(' ')}
+      >
+        Raw
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('filtered')}
+        disabled={disabled}
+        aria-pressed={mode === 'filtered'}
+        className={[
+          `rounded-r-md border border-l-0 border-gray-700`,
+          base,
+          mode === 'filtered' ? active : inactive,
+          disabled ? 'cursor-not-allowed opacity-50' : '',
+        ].join(' ')}
+      >
+        Filtered
+      </button>
+    </div>
   )
-
-  for (const m of sorted) {
-    const ibis = m.ibis_ms
-    if (!ibis || ibis.length === 0) continue
-
-    const ts = new Date(m.timestamp).getTime()
-    let offset = 0
-
-    for (let i = ibis.length - 1; i >= 0; i--) {
-      const ibi = ibis[i]
-      points.push({
-        timestamp: new Date(ts - offset).toISOString(),
-        ibiMs: ibi,
-      })
-      offset += ibi
-    }
-  }
-
-  return points
 }
 
-export function TachogramChart({ measurements }: { measurements: Measurement[] }) {
-  const data = useMemo(() => measurementsToTachogram(measurements), [measurements])
+export function TachogramChart({
+  measurements,
+  mode,
+}: {
+  measurements: Measurement[]
+  mode: BeatMode
+}) {
+  const data = useMemo(
+    () => selectBeatsForChart(measurements, mode, 60_000),
+    [measurements, mode],
+  )
 
   if (data.length === 0) {
     return <ChartEmptyState />
@@ -177,8 +196,14 @@ export function TachogramChart({ measurements }: { measurements: Measurement[] }
 // Poincaré Plot
 // ---------------------------------------------------------------------------
 
-export function PoincareChart({ measurements }: { measurements: Measurement[] }) {
-  const data = useMemo(() => computePoincare(measurements), [measurements])
+export function PoincareChart({
+  measurements,
+  mode = 'raw',
+}: {
+  measurements: Measurement[]
+  mode?: BeatMode
+}) {
+  const data = useMemo(() => computePoincare(measurements, mode), [measurements, mode])
 
   if (data.length === 0) {
     return <ChartEmptyState />
@@ -261,8 +286,14 @@ export function PoincareChart({ measurements }: { measurements: Measurement[] })
 // Frequency Spectrum (PSD)
 // ---------------------------------------------------------------------------
 
-export function FrequencyChart({ measurements }: { measurements: Measurement[] }) {
-  const bins = useMemo(() => computePSD(measurements), [measurements])
+export function FrequencyChart({
+  measurements,
+  mode = 'raw',
+}: {
+  measurements: Measurement[]
+  mode?: BeatMode
+}) {
+  const bins = useMemo(() => computePSD(measurements, mode), [measurements, mode])
 
   if (bins.length === 0) {
     return <ChartEmptyState />
@@ -371,7 +402,14 @@ export function FrequencyChart({ measurements }: { measurements: Measurement[] }
 
 export function ChartView({ patientId }: { patientId: string }) {
   const queryClient = useQueryClient()
-  const { measurements, isLoading } = usePatientChart(patientId)
+  const {
+    measurements,
+    isLoading,
+    mode,
+    setMode,
+    hasStatusData,
+    effectiveMode,
+  } = usePatientChart(patientId)
   const { connectionState } = usePatientWebSocket(patientId, queryClient)
 
   const { data: patient, isLoading: isPatientLoading } = useQuery({
@@ -393,15 +431,25 @@ export function ChartView({ patientId }: { patientId: string }) {
 
       <div className="mb-4 flex items-center justify-between">
         <ConnectionStatus state={connectionState} />
+        <div className="flex items-center gap-3">
+          {!hasStatusData && measurements.length > 0 && (
+            <span className="text-xs text-gray-500">Signal quality unavailable</span>
+          )}
+          <ModeToggle
+            mode={effectiveMode}
+            onChange={setMode}
+            disabled={!hasStatusData}
+          />
+        </div>
       </div>
 
       {isLoading && measurements.length === 0 ? (
         <div className="h-96 animate-pulse rounded-xl bg-gray-800" />
       ) : (
         <div className="flex flex-col gap-6">
-          <TachogramChart measurements={measurements} />
-          <PoincareChart measurements={measurements} />
-          <FrequencyChart measurements={measurements} />
+          <TachogramChart measurements={measurements} mode={effectiveMode} />
+          <PoincareChart measurements={measurements} mode={effectiveMode} />
+          <FrequencyChart measurements={measurements} mode={effectiveMode} />
         </div>
       )}
     </div>

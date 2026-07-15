@@ -19,12 +19,22 @@ export interface PoincarePoint {
   y: number
 }
 
+export interface TachogramPoint {
+  timestamp: string
+  ibiMs: number
+}
+
+export type BeatMode = 'filtered' | 'raw'
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /** Target resampling rate (Hz) for regular-grid interpolation */
 const TARGET_HZ = 4
+
+/** Default rolling window for the beat-by-beat tachogram (ms). */
+export const DEFAULT_TACHOGRAM_WINDOW_MS = 60_000
 
 /**
  * HRV frequency band boundaries (Hz).
@@ -61,11 +71,17 @@ function hannWindow(n: number): number[] {
 
 /**
  * Flatten all measurements into a chronological (timestamp, IBI) sequence.
+ *
  * Timestamps are reconstructed by walking backwards from each batch's
- * reference timestamp (same logic as the tachogram).
+ * reference timestamp, exactly the same math used for the tachogram.
+ *
+ * - `mode === 'filtered'` drops beats whose `ibis_status[i] === 0`.
+ * - `mode === 'raw'` keeps every beat.
+ * - `ibis_status == null` or length-mismatched is treated as "all accepted".
  */
-function extractIBISeries(
+export function selectIBISeries(
   measurements: Measurement[],
+  mode: BeatMode = 'raw',
 ): { times: number[]; ibis: number[] } {
   const sorted = [...measurements].sort((a, b) =>
     a.timestamp.localeCompare(b.timestamp),
@@ -79,24 +95,62 @@ function extractIBISeries(
     if (!ibisMs || ibisMs.length === 0) continue
 
     const ts = new Date(m.timestamp).getTime()
-    let offset = 0
+    const status = m.ibis_status
+    const hasStatus = status !== null && status.length === ibisMs.length
+    const filtering = mode === 'filtered' && hasStatus
 
-    // Build beats oldest → newest within this batch
+    // Build this batch oldest → newest, then append chronologically.
     const localTimes: number[] = []
     const localIbis: number[] = []
+    let offset = 0
+
     for (let i = ibisMs.length - 1; i >= 0; i--) {
       localTimes.push(ts - offset)
       localIbis.push(ibisMs[i])
       offset += ibisMs[i]
     }
+
     localTimes.reverse()
     localIbis.reverse()
 
-    times.push(...localTimes)
-    ibis.push(...localIbis)
+    for (let i = 0; i < localIbis.length; i++) {
+      if (filtering && status[i] === 0) continue
+      times.push(localTimes[i])
+      ibis.push(localIbis[i])
+    }
   }
 
   return { times, ibis }
+}
+
+/**
+ * Select beats for the tachogram, optionally filtering noisy beats and
+ * always capped to the last `windowMs` milliseconds.
+ *
+ * Returns points in chronological order (oldest → newest) so the chart can
+ * simply render them in order.
+ */
+export function selectBeatsForChart(
+  measurements: Measurement[],
+  mode: BeatMode,
+  windowMs: number = DEFAULT_TACHOGRAM_WINDOW_MS,
+): TachogramPoint[] {
+  const { times, ibis } = selectIBISeries(measurements, mode)
+  if (times.length === 0) return []
+
+  const latest = times[times.length - 1]
+  const cutoff = latest - windowMs
+
+  const points: TachogramPoint[] = []
+  for (let i = 0; i < times.length; i++) {
+    if (times[i] < cutoff) continue
+    points.push({
+      timestamp: new Date(times[i]).toISOString(),
+      ibiMs: ibis[i],
+    })
+  }
+
+  return points
 }
 
 // ---------------------------------------------------------------------------
@@ -156,9 +210,15 @@ function interpolateToRegularGrid(
  * PSD normalisation (ms²/Hz).
  *
  * Returns only the positive-frequency bins from 0 to Nyquist.
+ *
+ * `mode` follows the same filtered/raw convention as the tachogram, but
+ * the PSD is NOT capped to the 60-second tachogram window.
  */
-export function computePSD(measurements: Measurement[]): FrequencyBin[] {
-  const { times, ibis } = extractIBISeries(measurements)
+export function computePSD(
+  measurements: Measurement[],
+  mode: BeatMode = 'raw',
+): FrequencyBin[] {
+  const { times, ibis } = selectIBISeries(measurements, mode)
   if (ibis.length < 8) return []
 
   const { gridValues } = interpolateToRegularGrid(times, ibis, TARGET_HZ)
@@ -218,11 +278,18 @@ export function computePSD(measurements: Measurement[]): FrequencyBin[] {
 /**
  * Build Poincaré-plot points: (IBI[n], IBI[n+1]) for every pair of
  * consecutive inter-beat intervals.
+ *
+ * `mode` follows the tachogram's filtered/raw convention, but the points
+ * are NOT capped to the 60-second tachogram window.
  */
-export function computePoincare(measurements: Measurement[]): PoincarePoint[] {
-  const { ibis } = extractIBISeries(measurements)
-  const points: PoincarePoint[] = []
+export function computePoincare(
+  measurements: Measurement[],
+  mode: BeatMode = 'raw',
+): PoincarePoint[] {
+  const { ibis } = selectIBISeries(measurements, mode)
+  if (ibis.length < 2) return []
 
+  const points: PoincarePoint[] = []
   for (let i = 0; i < ibis.length - 1; i++) {
     points.push({ x: ibis[i], y: ibis[i + 1] })
   }
