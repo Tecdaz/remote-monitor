@@ -106,8 +106,8 @@ ngrok-up:
 		exit 1; \
 	fi
 	@mkdir -p $$(dirname $(NGROK_LOG))
-	@if pgrep -f "ngrok http 8000 --domain=$(NGROK_DOMAIN)" >/dev/null 2>&1; then \
-		echo "ngrok already running (pid $$(pgrep -f 'ngrok http 8000 --domain=$(NGROK_DOMAIN)' | head -1))"; \
+	@if pgrep -x ngrok >/dev/null 2>&1; then \
+		echo "ngrok already running (pid $$(pgrep -x ngrok | head -1))"; \
 	else \
 		echo "Starting ngrok in background (logs: $(NGROK_LOG))..."; \
 		NGROK_AUTHTOKEN='$(NGROK_AUTHTOKEN)' nohup ngrok http 8000 \
@@ -115,12 +115,12 @@ ngrok-up:
 			--log=$(NGROK_LOG) \
 			>/dev/null 2>&1 & \
 		sleep 3; \
-		echo "ngrok started (pid $$(pgrep -f 'ngrok http 8000' | head -1))"; \
+		echo "ngrok started (pid $$(pgrep -x ngrok | head -1))"; \
 	fi
 	@echo "Public URL: $(NGROK_URL)"
 
 ngrok-down:
-	-pkill -f "ngrok http 8000 --domain=$(NGROK_DOMAIN)" 2>/dev/null
+	-pkill -x ngrok 2>/dev/null
 	@echo "ngrok stopped (if it was running)."
 
 # --- Watch ----------------------------------------------------------------
@@ -165,8 +165,8 @@ status:
 	@adb devices -l 2>&1
 	@echo
 	@echo "=== ngrok ==="
-	@if pgrep -f "ngrok http 8000" >/dev/null 2>&1; then \
-		pgrep -af "ngrok http 8000" | head -1; \
+	@if pgrep -x ngrok >/dev/null 2>&1; then \
+		pgrep -ax ngrok | head -1; \
 	else \
 		echo "(ngrok not running)"; \
 	fi
