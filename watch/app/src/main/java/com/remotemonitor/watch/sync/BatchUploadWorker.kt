@@ -1,5 +1,6 @@
 package com.remotemonitor.watch.sync
 
+import android.util.Log
 import com.remotemonitor.watch.api.MeasurementsApi
 import com.remotemonitor.watch.data.MeasurementDao
 import com.remotemonitor.watch.identity.DeviceInfoProvider
@@ -91,11 +92,28 @@ class BatchUploadWorker(
                 deviceModel = deviceInfo.deviceModel().takeIf { isFirstUpload },
                 osVersion = deviceInfo.osVersion().takeIf { isFirstUpload },
             )
-        } catch (_: HttpException) {
+        } catch (e: HttpException) {
             // 4xx or 5xx — do NOT delete anything; rows remain in Room.
+            // Operators need visibility: log the HTTP status and the
+            // (truncated) response body so a stuck upload — e.g. backend
+            // 422 on `ibis_status` length mismatch, auth failure, or
+            // 5xx — is diagnosable from logcat without re-running.
+            val body = runCatching { e.response()?.errorBody()?.string() }
+                .getOrNull()
+                ?.take(500)
+            Log.w(
+                TAG,
+                "upload rejected: HTTP ${e.code()} body=$body; " +
+                    "keeping ${pending.size} rows in Room for retry",
+            )
             return UploadResult(acceptedCount = 0, rejectedCount = 0, keptCount = pending.size)
-        } catch (_: IOException) {
+        } catch (e: IOException) {
             // Network error — do NOT delete anything; rows remain in Room.
+            Log.w(
+                TAG,
+                "upload failed: network IO error (${e.message ?: e.javaClass.simpleName}); " +
+                    "keeping ${pending.size} rows in Room for retry",
+            )
             return UploadResult(acceptedCount = 0, rejectedCount = 0, keptCount = pending.size)
         }
 
@@ -116,6 +134,9 @@ class BatchUploadWorker(
     }
 
     private companion object {
+        /** logcat tag for upload diagnostics (e.g. 422 body on stuck uploads). */
+        const val TAG = "BatchUploadWorker"
+
         /** Per OpenAPI: 413 if the batch exceeds 1000 items. */
         const val LIMIT = 1000
     }

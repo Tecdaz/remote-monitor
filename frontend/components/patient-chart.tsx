@@ -81,10 +81,10 @@ export function ConnectionStatus({ state }: { state: ConnectionState }) {
   )
 }
 
-export function ChartEmptyState() {
+export function ChartEmptyState({ message }: { message?: string }) {
   return (
     <div className="flex h-96 items-center justify-center rounded-xl border border-gray-800 bg-gray-900">
-      <p className="text-gray-400">No measurements yet</p>
+      <p className="text-gray-400">{message ?? 'No measurements yet'}</p>
     </div>
   )
 }
@@ -145,7 +145,18 @@ export function TachogramChart({
   )
 
   if (data.length === 0) {
-    return <ChartEmptyState />
+    // Distinguish "no data yet" from "all beats were filtered as noisy":
+    // if we're in filtered mode and there's at least one measurement
+    // with ibis_status present, the sensor is flagging every beat as
+    // rejected and the chart is correctly empty — show that explicitly
+    // so the user knows it's a signal-quality issue, not a missing-data
+    // issue.
+    const hasAnyStatus = measurements.some((m) => m.ibis_status !== null)
+    const message =
+      mode === 'filtered' && hasAnyStatus
+        ? 'All beats in the last 60s are flagged as noisy'
+        : undefined
+    return <ChartEmptyState message={message} />
   }
 
   const latest = data[data.length - 1]
