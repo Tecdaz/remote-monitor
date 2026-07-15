@@ -571,6 +571,63 @@ class TestIngestService:
         assert list(row.ibis_ms) == [800, 820, 900]
         assert list(row.ibis_status) == [0, 0, 0]
 
+    async def test_upload_accepts_mixed_noisy_ibis_beats(
+        self, session: AsyncSession
+    ) -> None:
+        """S1: mixed valid/noisy beats are accepted and persisted raw."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="1",
+            raw_items=[
+                _valid_item_with_ibis(
+                    local_id,
+                    ibis_ms=[800, 750, 820, 810, 790],
+                    ibis_status=[0, -1, 0, 0, -1],
+                )
+            ],
+        )
+        assert response.accepted_ids == [local_id]
+        assert response.rejected == []
+
+        await session.commit()
+        async with session.bind.connect() as conn:
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT ibis_ms, ibis_status FROM clinical.measurements "
+                        "WHERE patient_id = :pid AND local_id = :lid"
+                    ),
+                    {"pid": path_pid, "lid": local_id},
+                )
+            ).one_or_none()
+        assert row is not None
+        assert list(row.ibis_ms) == [800, 750, 820, 810, 790]
+        assert list(row.ibis_status) == [0, -1, 0, 0, -1]
+
+    async def test_upload_accepts_100_noisy_items(
+        self, session: AsyncSession
+    ) -> None:
+        """S5: a batch of 100 noisy items is fully accepted."""
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                ibis_ms=[800, 820],
+                ibis_status=[0, -1],
+            )
+            for _ in range(100)
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="1",
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 100
+        assert response.rejected == []
+
     async def test_upload_without_ibis_status_stores_null(
         self, session: AsyncSession
     ) -> None:
@@ -685,32 +742,6 @@ class TestIngestService:
         ).scalars().all()
         assert len(meas) == 1
         assert list(meas[0].ibis_status) == [0, 0]
-
-    async def test_upload_rejects_mixed_invalid_beat_pair(
-        self, session: AsyncSession
-    ) -> None:
-        """Samsung pair rule: a beat is invalid iff status != 0 OR ibis == 0.
-
-        A mixed batch (one normal, one error) must be rejected as a whole
-        because the pair validator walks both arrays in lockstep.
-        """
-        path_pid = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                ibis_ms=[800, 820],
-                ibis_status=[0, -1],  # second beat flagged as error by sensor
-            )
-        ]
-        response = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="1",  # valid bed 1..5
-            raw_items=items,
-        )
-        assert len(response.accepted_ids) == 0
-        assert len(response.rejected) == 1
-        assert "invalid IBI beat" in response.rejected[0].reason
-        assert "status=-1" in response.rejected[0].reason
 
     async def test_upload_rejects_ibis_zero_sentinel(
         self, session: AsyncSession
@@ -1089,6 +1120,25 @@ class TestMeasurementsRouter:
         )
         assert response.status_code == 400
         assert response.json()["detail"]["code"] == "empty_batch"
+
+    async def test_post_accepts_noisy_ibis_beats(
+        self, client: AsyncClient
+    ) -> None:
+        """S1 via HTTP: a noisy item returns 200 with no rejected rows."""
+        path_pid = uuid4()
+        item = _valid_item_with_ibis(
+            ibis_ms=[800, 750],
+            ibis_status=[0, -1],
+        )
+        resp = await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=[item],
+            headers={"X-Patient-Number": "1"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["accepted_ids"]) == 1
+        assert body["rejected"] == []
 
     async def test_post_without_x_patient_number_returns_403(
         self, client: AsyncClient
