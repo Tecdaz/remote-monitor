@@ -210,6 +210,7 @@ async def list_measurements(
             heart_rate_bpm=row.heart_rate_bpm,
             spo2_percent=row.spo2_percent,
             ibis_ms=row.ibis_ms,
+            ibis_status=row.ibis_status,
         )
         for row in page
     ]
@@ -260,4 +261,5 @@ async def get_measurement(
         heart_rate_bpm=row.heart_rate_bpm,
         spo2_percent=row.spo2_percent,
         ibis_ms=row.ibis_ms,
+        ibis_status=row.ibis_status,
     )

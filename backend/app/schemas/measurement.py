@@ -51,6 +51,16 @@ class MeasurementBatch(BaseModel):
         default=None,
         description="Raw inter-beat intervals in milliseconds (Samsung IBI_LIST).",
     )
+    # Per-beat quality flags: 0 = noisy/rejected, non-zero = accepted/clean.
+    # Length must match `ibis_ms` when present.
+    ibis_status: list[int] | None = Field(
+        default=None,
+        description=(
+            "Per-beat quality flags from the Samsung sensor: "
+            "0 = noisy/rejected, non-zero = accepted/clean. "
+            "Length must match `ibis_ms` when present."
+        ),
+    )
 
     @field_validator("ibis_ms")
     @classmethod
@@ -60,6 +70,19 @@ class MeasurementBatch(BaseModel):
         for x in v:
             if not (1 <= x <= 5000):
                 raise ValueError(f"ibis_ms value {x} out of [1, 5000]")
+        return v
+
+    @field_validator("ibis_status")
+    @classmethod
+    def _validate_ibis_status(cls, v: list[int] | None, info) -> list[int] | None:
+        if v is None:
+            return v
+        ibis = info.data.get("ibis_ms")
+        if ibis is not None and len(v) != len(ibis):
+            raise ValueError("ibis_status length must match ibis_ms")
+        for x in v:
+            if not (0 <= x <= 2_147_483_647):
+                raise ValueError(f"ibis_status value {x} out of [0, 2147483647]")
         return v
 
 

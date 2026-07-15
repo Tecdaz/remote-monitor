@@ -49,12 +49,15 @@ def _valid_item(local_id: UUID | None = None) -> dict:
 def _valid_item_with_ibis(
     local_id: UUID | None = None,
     ibis_ms: list[int] | None = None,
+    ibis_status: list[int] | None = None,
 ) -> dict:
     """A valid ``MeasurementBatch`` carrying an ``ibis_ms`` list
     (REQ-WATCH-HR-IBI-11 S01). Defaults to a 2-sample list.
     """
     item = _valid_item(local_id)
     item["ibis_ms"] = ibis_ms if ibis_ms is not None else [800, 820]
+    if ibis_status is not None:
+        item["ibis_status"] = ibis_status
     return item
 
 
@@ -525,6 +528,159 @@ class TestIngestService:
         assert list(row.ibis_ms) == [800, 820], (
             f"expected ibis_ms=[800, 820], got {list(row.ibis_ms)!r}"
         )
+
+    # --- REQ-NOISE-BE-06: ibis_status persistence + backwards-compat ----
+
+    async def test_upload_persists_ibis_status_to_clinical_measurements(
+        self, session: AsyncSession
+    ) -> None:
+        """REQ-NOISE-BE-03: a batch with ibis_status=[1,0,1] stores the array."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                local_id,
+                ibis_ms=[800, 820, 900],
+                ibis_status=[1, 0, 1],
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="1",
+            raw_items=items,
+        )
+        assert response.accepted_ids == [local_id]
+        assert response.rejected == []
+
+        await session.commit()
+        async with session.bind.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT ibis_ms, ibis_status FROM clinical.measurements "
+                    "WHERE patient_id = :pid AND local_id = :lid"
+                ),
+                {"pid": path_pid, "lid": local_id},
+            )
+            row = result.one_or_none()
+        assert row is not None, "row not found in clinical.measurements"
+        assert list(row.ibis_ms) == [800, 820, 900]
+        assert list(row.ibis_status) == [1, 0, 1]
+
+    async def test_upload_without_ibis_status_stores_null(
+        self, session: AsyncSession
+    ) -> None:
+        """REQ-NOISE-BE-06: old watches omitting ibis_status persist NULL."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                local_id,
+                ibis_ms=[800, 820],
+                ibis_status=None,
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="2",
+            raw_items=items,
+        )
+        assert response.accepted_ids == [local_id]
+        assert response.rejected == []
+
+        await session.commit()
+        async with session.bind.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT ibis_status FROM clinical.measurements "
+                    "WHERE patient_id = :pid AND local_id = :lid"
+                ),
+                {"pid": path_pid, "lid": local_id},
+            )
+            row = result.one_or_none()
+        assert row is not None
+        assert row.ibis_status is None
+
+    async def test_upload_rejects_ibis_status_length_mismatch(
+        self, session: AsyncSession
+    ) -> None:
+        """REQ-NOISE-BE-02: ibis_status length must match ibis_ms."""
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                ibis_ms=[800, 820],
+                ibis_status=[1, 0, 1],  # 3 items, ibis_ms has 2
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="3",
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 0
+        assert len(response.rejected) == 1
+        assert "ibis_status length must match ibis_ms" in response.rejected[0].reason
+
+    async def test_upload_rejects_ibis_status_value_out_of_range(
+        self, session: AsyncSession
+    ) -> None:
+        """REQ-NOISE-BE-02: ibis_status values must be in [0, 2^31-1]."""
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                ibis_ms=[800, 820],
+                ibis_status=[1, -1],
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="4",
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 0
+        assert len(response.rejected) == 1
+        assert "ibis_status value" in response.rejected[0].reason
+
+    async def test_upload_ibis_status_idempotent_on_local_id(
+        self, session: AsyncSession
+    ) -> None:
+        """REQ-NOISE-BE-06: re-POSTing ibis_status does not duplicate rows."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                local_id,
+                ibis_ms=[800, 820],
+                ibis_status=[1, 0],
+            )
+        ]
+        first = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="5",
+            raw_items=items,
+        )
+        second = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="5",
+            raw_items=items,
+        )
+        assert sorted(first.accepted_ids) == sorted(second.accepted_ids)
+        assert second.rejected == []
+
+        meas = (
+            await session.execute(
+                select(ClinicalMeasurement).where(
+                    ClinicalMeasurement.patient_id == path_pid
+                )
+            )
+        ).scalars().all()
+        assert len(meas) == 1
+        assert list(meas[0].ibis_status) == [1, 0]
 
     # --- patient inactivity refresh (sdd/feat-patient-inactivity-sweep) --
 
@@ -1159,3 +1315,54 @@ class TestMeasurementsRouter:
         )
         assert response.status_code == 404
         assert response.json()["detail"]["code"] == "measurement_not_found"
+
+    async def test_get_measurements_includes_ibis_status(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-NOISE-BE-05: list_measurements includes ibis_status."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        item = _valid_item_with_ibis(
+            local_id,
+            ibis_ms=[800, 820, 900],
+            ibis_status=[1, 0, 1],
+        )
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=[item],
+            headers={"X-Patient-Number": "1"},
+        )
+        response = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["items"]) == 1
+        assert body["items"][0]["ibis_status"] == [1, 0, 1]
+
+    async def test_get_measurement_by_id_includes_ibis_status(
+        self, client: AsyncClient
+    ) -> None:
+        """REQ-NOISE-BE-05: get_measurement includes ibis_status."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        item = _valid_item_with_ibis(
+            local_id,
+            ibis_ms=[800, 820],
+            ibis_status=[1, 0],
+        )
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=[item],
+            headers={"X-Patient-Number": "2"},
+        )
+        listed = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        target_id = listed.json()["items"][0]["id"]
+        response = await client.get(
+            f"/api/v1/measurements/{target_id}"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ibis_status"] == [1, 0]

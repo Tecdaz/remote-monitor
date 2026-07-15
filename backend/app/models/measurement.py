@@ -60,3 +60,10 @@ class ClinicalMeasurement(Base):
     ibis_ms: Mapped[list[int] | None] = mapped_column(
         ARRAY(BigInteger), nullable=True
     )
+    # Per-beat quality flags from the Samsung sensor.
+    # 0 = noisy/rejected, non-zero = accepted/clean.
+    # Stored as `integer[]`. NULL when the device does not expose status,
+    # or when the status array length does not match `ibis_ms`.
+    ibis_status: Mapped[list[int] | None] = mapped_column(
+        ARRAY(Integer), nullable=True
+    )

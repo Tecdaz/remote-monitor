@@ -254,6 +254,7 @@ async def upload_measurements(
                             "spo2_percent": item.spo2_percent,
                             "received_at": received_at,
                             "ibis_ms": item.ibis_ms,
+                            "ibis_status": item.ibis_status,
                         }
                         for i, item in enumerate(valid_items)
                     ]
@@ -317,6 +318,11 @@ async def upload_measurements(
                 "ibis_ms": (
                     list(item.ibis_ms)
                     if item.ibis_ms is not None
+                    else None
+                ),
+                "ibis_status": (
+                    list(item.ibis_status)
+                    if item.ibis_status is not None
                     else None
                 ),
             }
