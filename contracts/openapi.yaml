@@ -242,6 +242,11 @@ components:
           type: [array, "null"]
           items: { type: integer, minimum: 1, maximum: 5000 }
           description: "Inter-beat intervals in milliseconds (Samsung Health Sensor SDK IBI_LIST). `null` for devices that do not expose IBI samples. Per-item clamp `[1, 5000]` matches the Pydantic field validator."
+        ibis_status:
+          type: [array, "null"]
+          items: { type: integer, minimum: 0, maximum: 2147483647 }
+          default: null
+          description: "Per-beat Samsung IBI quality flag (IBI_STATUS_LIST). `0` = noisy/rejected, non-zero = accepted. Length must match `ibis_ms` when present. `null` for devices that do not provide status."
     Measurement:
       allOf:
         - $ref: "#/components/schemas/MeasurementBatch"
