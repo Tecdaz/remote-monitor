@@ -9,12 +9,14 @@ function PatientRouteComponent() {
   const { patientId } = Route.useParams()
 
   return (
-    <div className="p-6">
+    <div className="px-4 py-6 sm:px-6">
       <Link
         to="/"
-        className="mb-4 inline-block text-sm text-teal-400 hover:text-teal-300"
+        aria-label="Volver al listado de camas"
+        className="mb-4 inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-clinical-accentStrong transition-colors hover:bg-clinical-accentSoft focus:outline-none focus-visible:ring-2 focus-visible:ring-clinical-accent focus-visible:ring-offset-2 focus-visible:ring-offset-clinical-surface"
       >
-        ← Back to beds
+        <span aria-hidden="true">←</span>
+        Volver a camas
       </Link>
       <ChartView patientId={patientId} />
     </div>

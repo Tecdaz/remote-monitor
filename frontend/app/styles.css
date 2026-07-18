@@ -1,3 +1,48 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    @apply bg-clinical-surface text-clinical-ink font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Tabular numbers wherever a clinical value is rendered. */
+  .num,
+  [data-num] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Accessible focus ring for keyboard navigation. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-clinical-accent ring-offset-2 ring-offset-clinical-surface;
+  }
+}
+
+@layer components {
+  .clinical-card {
+    @apply rounded-card border border-clinical-border bg-clinical-panel shadow-card transition-shadow;
+  }
+
+  .clinical-card-hover {
+    @apply hover:shadow-cardHover;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-clinical-accent text-white hover:bg-clinical-accentStrong;
+  }
+
+  .btn-ghost {
+    @apply btn border border-clinical-border bg-clinical-panel text-clinical-ink hover:bg-clinical-subtle;
+  }
+}

@@ -85,6 +85,69 @@ describe('selectBeatsForChart', () => {
     const earliest = new Date(beats[0].timestamp).getTime()
     expect(latest - earliest).toBe(3000)
   })
+
+  it('exposes a numeric epoch-ms coordinate matching the ISO timestamp', () => {
+    // The chart needs a number for the time-scaled X axis; the ISO string is
+    // preserved only for recency/copy consumers.
+    const now = 70_000
+    const measurement = makeMeasurement(now, [800, 820, 900], [0, 0, 0])
+    const beats = selectBeatsForChart([measurement], 'raw')
+
+    expect(beats).toHaveLength(3)
+    for (const beat of beats) {
+      expect(typeof beat.timestampMs).toBe('number')
+      expect(beat.timestampMs).toBe(new Date(beat.timestamp).getTime())
+    }
+    // last beat timestamp = now - 0 (oldest ibis_ms counts back from the
+    // batch end). Verify the numeric coordinate tracks the reconstructed
+    // beat time, not the raw batch timestamp.
+    expect(beats[beats.length - 1].timestampMs).toBe(now)
+  })
+
+  it('returns beats in strictly chronological order', () => {
+    // Out-of-order measurements: the function must still emit the
+    // reconstructed beats oldest → newest.
+    const measurements = [
+      makeMeasurement(60_000, [800, 900], [0, 0]),
+      makeMeasurement(10_000, [700, 750], [0, 0]),
+    ]
+    const beats = selectBeatsForChart(measurements, 'raw')
+
+    expect(beats.map((b) => b.ibiMs)).toEqual([700, 750, 800, 900])
+    for (let i = 1; i < beats.length; i++) {
+      expect(beats[i].timestampMs).toBeGreaterThan(beats[i - 1].timestampMs)
+    }
+  })
+
+  it('drops beats outside the 60-second window using timestampMs', () => {
+    // Two measurements 70 seconds apart. Only the newer batch's beats stay
+    // inside the default 60-second window. Assert the bound via the
+    // numeric coordinate (the field the chart actually consumes).
+    const oldMeasurement = makeMeasurement(0, [1000])
+    const newMeasurement = makeMeasurement(70_000, [1100, 1050])
+    const beats = selectBeatsForChart(
+      [oldMeasurement, newMeasurement],
+      'raw',
+    )
+
+    expect(beats.map((b) => b.ibiMs)).toEqual([1100, 1050])
+    for (const beat of beats) {
+      expect(beat.timestampMs).toBeGreaterThanOrEqual(10_000)
+      expect(beat.timestampMs).toBeLessThanOrEqual(70_000)
+    }
+  })
+
+  it('defaults to a 60-second rolling window', () => {
+    // Beat at t=0 must not leak past the default window once a newer
+    // measurement arrives at t=59_500 (0 is < 59_500 - 60_000 = -500? no —
+    // the bound is `latest - 60_000 = -500`, so 0 is kept). Tighten by
+    // placing the older beat 70 seconds before the newer one.
+    const older = makeMeasurement(0, [1000])
+    const newer = makeMeasurement(70_000, [1100])
+    const beats = selectBeatsForChart([older, newer], 'raw')
+
+    expect(beats.map((b) => b.ibiMs)).toEqual([1100])
+  })
 })
 
 describe('computePoincare', () => {

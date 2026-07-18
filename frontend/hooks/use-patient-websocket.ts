@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
-import { measurementsKey } from '../lib/query-keys'
+import { measurementsKey, patientKey } from '../lib/query-keys'
 import { mergeMeasurement } from '../lib/merge-measurement'
 import type { ConnectionState } from '../lib/connection-state'
-import type { MeasurementPage, WsMessage } from '../lib/types'
+import type { MeasurementPage, Patient, WsMessage } from '../lib/types'
 import { WS_BASE_URL } from '../lib/config'
 
 const WS_BASE = WS_BASE_URL
@@ -15,6 +15,7 @@ function reconnectDelay(attempt: number): number {
 
 export function usePatientWebSocket(patientId: string, queryClient: QueryClient) {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
+  const [justDeactivated, setJustDeactivated] = useState(false)
   const attemptRef = useRef(0)
   const socketRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -22,6 +23,7 @@ export function usePatientWebSocket(patientId: string, queryClient: QueryClient)
 
   useEffect(() => {
     mountedRef.current = true
+    setJustDeactivated(false)
 
     function connect() {
       setConnectionState('reconnecting')
@@ -57,6 +59,24 @@ export function usePatientWebSocket(patientId: string, queryClient: QueryClient)
               return { items, next_cursor: null }
             },
           )
+          return
+        }
+
+        if (message.type === 'patient.deactivated') {
+          // Mark the patient inactive in the cache immediately so the
+          // UI does not present clearly-stale live data as live. The
+          // next patient fetch will reconcile with the server truth.
+          // Only surface the "just deactivated" hint when the cached
+          // patient was active in this hook session — patients that
+          // were already inactive before the page loaded must not
+          // show a false live-deactivation cue.
+          const wasActive =
+            queryClient.getQueryData<Patient>(patientKey(patientId))?.is_active === true
+          if (wasActive) setJustDeactivated(true)
+          queryClient.setQueryData<Patient | undefined>(
+            patientKey(patientId),
+            (prev) => (prev ? { ...prev, is_active: false } : prev),
+          )
         }
       }
 
@@ -86,5 +106,5 @@ export function usePatientWebSocket(patientId: string, queryClient: QueryClient)
     }
   }, [patientId, queryClient])
 
-  return { connectionState }
+  return { connectionState, justDeactivated }
 }

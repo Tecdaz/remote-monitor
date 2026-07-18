@@ -14,10 +14,13 @@ export interface BedSnapshot {
 }
 
 export interface Patient {
-  id: string
-  bed_number: number
-  is_active: boolean
+  patient_id: string
+  patient_number: string
+  device_model: string
+  os_version: string
   created_at: string
+  is_active: boolean
+  last_measurement_at: string
 }
 
 export interface Measurement {

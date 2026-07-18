@@ -20,7 +20,19 @@ export interface PoincarePoint {
 }
 
 export interface TachogramPoint {
+  /**
+   * ISO 8601 timestamp of the beat (`measurement.timestamp` derived from the
+   * sensor batch, shifted back by accumulated `ibis_ms`). Used by the live
+   * indicator copy and other recency/reporting consumers.
+   */
   timestamp: string
+  /**
+   * Reconstructed epoch-millisecond coordinate for the same beat.
+   * Recharts cannot plot ISO strings on a numeric/time X axis, so the chart
+   * binds its X axis to this field; we compute it once here from `times[i]`
+   * instead of reparsing the ISO string on every render.
+   */
+  timestampMs: number
   ibiMs: number
 }
 
@@ -155,6 +167,7 @@ export function selectBeatsForChart(
     if (times[i] < cutoff) continue
     points.push({
       timestamp: new Date(times[i]).toISOString(),
+      timestampMs: times[i],
       ibiMs: ibis[i],
     })
   }
