@@ -38,6 +38,9 @@ services:
         condition: service_healthy
 
   frontend:
+    # Tag the built image so it matches the manually-built `:dev` image
+    # and stays consistent with the rest of the local dev workflow.
+    image: remote-monitor-frontend:dev
     build:
       context: ./frontend
     ports:
