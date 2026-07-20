@@ -5,11 +5,48 @@ WebSocket and renders live patient state without manual refresh.
 
 ## Stack
 
-- Framework: TanStack Start
-- Data layer: TanStack Query ≥ 5.101
-- Runtime: Node 20.19+
-- Package manager: `bun` (preferred) or `npm` as fallback
+- Framework: **TanStack Start** (1.168+)
+- Data layer: **TanStack Query** ≥ 5.101
+- Routing: **TanStack Router**
 - Real-time: native `WebSocket` client
+- Styling: **Tailwind CSS v4** (CSS-first config via `@theme`)
+- Build: **Vite 7** + `@tailwindcss/vite` (no PostCSS)
+- Runtime: **Node 22.12+** (TanStack Start engine requirement)
+- Package manager: `bun` (single lockfile: `bun.lock`)
+
+## Design system — "Iris Void"
+
+The frontend uses a hybrid design system that adapts the editorial dark
+aesthetic of **Dala** (pure black void, weight-200 display type, single
+saturated violet accent) to a clinical patient-monitoring dashboard.
+
+**Tokens** live in `frontend/app/styles.css` under the `@theme` block.
+Three semantic namespaces map on top of the raw palette:
+
+- `clinical-*` — surfaces, ink, borders, accent
+- `status-*` — live / ok / warn / danger / info
+- `chart-*` — HRV data series (VLF / LF / HF) and line colors
+
+Recharts / SVG attributes that need literal color strings pull from
+`frontend/lib/theme-colors.ts` (CSS variables aren't readable from JS).
+
+**Reference lock, token roles, and the anti-AI-slop audit** live in
+[`/.design/DESIGN.md`](../design/DESIGN.md). Read that file before
+changing any token — every color has a bounded role.
+
+### Visual identity at a glance
+
+| Layer | Value |
+| --- | --- |
+| Canvas | `#000000` (pure black, the void) |
+| Body text | `#FFFFFF` |
+| CTA | `#8052FF` (electric iris, filled pill only) |
+| Emphasis | `#FFB829` (saffron spark) |
+| Ok / live | `#00FFAA` (mint vital) |
+| Danger | `#EF4444` (standard red) |
+| Card border | `1px solid #15846E` (deep verdant) |
+| Border-radius | 24px on all interactive surfaces |
+| Numerics | Fira Code, tabular |
 
 ## Real-time pattern — `queryClient.setQueryData`
 
@@ -32,13 +69,15 @@ streams their measurements. This is a proof-of-concept posture only.
 The following strings appear on their own line so the scaffold's
 acceptance grep can verify them literally.
 
+```
 TanStack Start
 TanStack Query ≥ 5.101
 WebSocket
 setQueryData
-Node 20.19
+Node 22.12
 scaffold-frontend
 bun
+```
 
 ## Follow-up
 

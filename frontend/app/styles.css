@@ -1,48 +1,273 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+@import 'tailwindcss';
 
-@layer base {
-  :root {
-    color-scheme: light;
+/*
+ * remote-monitor design system — "Iris Void"
+ *
+ * Hybrid aesthetic: Dala's editorial dark-mode language (pure black
+ * void, weight-200 display type, single saturated violet accent) crossed
+ * with the clinical data semantics this product actually needs (status
+ * colors, live indicators, HRV chart palette, tabular numerics).
+ *
+ * Tailwind CSS v4 uses CSS-first configuration. Each `@theme` variable
+ * generates a matching utility (e.g. `--color-electric-iris` -> `bg-electric-iris`,
+ * `--radius-card` -> `rounded-card`).
+ *
+ * The `clinical`, `status`, and `chart` namespaces are mapped on top of
+ * the raw palette so existing components keep their semantic class names.
+ */
+@theme {
+  /* ─── Raw palette ─────────────────────────────────────────────── */
+
+  /* Dala-inherited neutrals + accents */
+  --color-void: #000000;
+  --color-bone-white: #ffffff;
+  --color-ash-gray: #9a9a9a;
+  --color-silver-mist: #bdbdbd;
+  --color-electric-iris: #8052ff;
+  --color-saffron-spark: #ffb829;
+  --color-deep-verdant: #15846e;
+  --color-mint-vital: #00ffaa;
+
+  /* Subtle lifts off the void */
+  --color-void-lift: #0a0a0a;
+  --color-void-lift-2: #141414;
+
+  /* Card border tints (work on black without screaming) */
+  --color-card-border: #15846e;
+  --color-card-border-strong: #1f5a4a;
+
+  /* Status backgrounds tuned for dark mode */
+  --color-status-danger-bg: #3a0f0f;
+  --color-status-ok-bg: #0f2a22;
+  --color-status-warn-bg: #2a1f0a;
+  --color-status-info-bg: #1a0f2a;
+
+  /* ─── Clinical namespace (mapped to palette) ──────────────────── */
+  --color-clinical-surface: var(--color-void);
+  --color-clinical-panel: var(--color-void);
+  --color-clinical-subtle: var(--color-void-lift);
+  --color-clinical-border: var(--color-card-border);
+  --color-clinical-border-strong: var(--color-card-border-strong);
+  --color-clinical-ink: var(--color-bone-white);
+  --color-clinical-ink-muted: var(--color-silver-mist);
+  --color-clinical-ink-faint: var(--color-ash-gray);
+  --color-clinical-accent: var(--color-electric-iris);
+  --color-clinical-accent-strong: #5e3fcc;
+  --color-clinical-accent-soft: #1f1545;
+
+  /* ─── Status namespace ─────────────────────────────────────────── */
+  --color-status-live: var(--color-mint-vital);
+  --color-status-ok: var(--color-mint-vital);
+  --color-status-ok-bg: var(--color-status-ok-bg);
+  --color-status-warn: var(--color-saffron-spark);
+  --color-status-warn-bg: var(--color-status-warn-bg);
+  --color-status-danger: #ef4444;
+  --color-status-danger-bg: var(--color-status-danger-bg);
+  --color-status-info: var(--color-electric-iris);
+  --color-status-info-bg: var(--color-status-info-bg);
+
+  /* ─── Chart namespace ──────────────────────────────────────────── */
+  --color-chart-line: var(--color-electric-iris);
+  --color-chart-line-latest: var(--color-saffron-spark);
+  --color-chart-axis: var(--color-ash-gray);
+  --color-chart-grid: #1a1a1a;
+  --color-chart-identity: var(--color-silver-mist);
+  --color-chart-vlf: var(--color-electric-iris);
+  --color-chart-lf: var(--color-saffron-spark);
+  --color-chart-hf: var(--color-mint-vital);
+
+  /* ─── Typography ──────────────────────────────────────────────── */
+  --font-display: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Dala-inspired type scale */
+  --text-caption: 12px;
+  --leading-caption: 1.5;
+  --text-nav-label: 14px;
+  --leading-nav-label: 1.2;
+  --tracking-nav-label: 0.35px;
+  --text-body-sm: 14px;
+  --leading-body-sm: 1.44;
+  --tracking-body-sm: 0.28px;
+  --text-body: 18px;
+  --leading-body: 1.5;
+  --text-subheading: 18px;
+  --leading-subheading: 1.44;
+  --tracking-subheading: -0.54px;
+  --text-heading-2xs: 24px;
+  --leading-heading-2xs: 1.25;
+  --tracking-heading-2xs: -0.48px;
+  --text-heading-xs: 27px;
+  --leading-heading-xs: 1;
+  --text-heading-sm: 42px;
+  --leading-heading-sm: 1.2;
+  --tracking-heading-sm: -1.68px;
+  --text-heading: 48px;
+  --leading-heading: 1.1;
+  --tracking-heading: -1.68px;
+  --text-heading-lg: 78px;
+  --leading-heading-lg: 1.1;
+  --tracking-heading-lg: -3.12px;
+  --text-display: 92px;
+  --leading-display: 0.92;
+  --tracking-display: -6.9px;
+  --text-display-xl: 124px;
+  --leading-display-xl: 0.92;
+  --tracking-display-xl: -9.3px;
+
+  /* Legacy type scale (kept for existing components) */
+  --text-heading-legacy-sm: 24px;
+  --leading-heading-legacy-sm: 1.44;
+  --tracking-heading-legacy-sm: -0.72px;
+  --text-heading-legacy: 46px;
+  --leading-heading-legacy: 1;
+  --tracking-heading-legacy: -1.84px;
+  --text-heading-legacy-lg: 54px;
+  --leading-heading-legacy-lg: 1;
+  --tracking-heading-legacy-lg: -2.16px;
+  --text-heading-legacy-xl: 66px;
+  --leading-heading-legacy-xl: 1;
+  --tracking-heading-legacy-xl: -2.64px;
+
+  /* ─── Spacing (Dala: 6px base, plus legacy 8px multiples) ─────── */
+  --spacing-6: 6px;
+  --spacing-12: 12px;
+  --spacing-18: 18px;
+  --spacing-24: 24px;
+  --spacing-30: 30px;
+  --spacing-36: 36px;
+  --spacing-60: 60px;
+  --spacing-96: 96px;
+  --spacing-120: 120px;
+  --spacing-8: 8px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-48: 48px;
+  --spacing-116: 116px;
+  --spacing-220: 220px;
+
+  /* ─── Border radius (Dala: 24px consistent) ──────────────────── */
+  --radius-md: 7px;
+  --radius-card: 24px;
+  --radius-pill: 9999px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+  --radius-3xl-2: 32px;
+  --radius-full: 9999px;
+
+  /* ─── Shadows — none (Dala does not use elevation) ───────────── */
+  /* Cards use border, not shadow. Animations do the lifting. */
+  --shadow-card: 0 0 0 1px rgba(21, 132, 110, 0.4);
+  --shadow-card-hover: 0 0 0 1px rgba(21, 132, 110, 0.7);
+
+  /* ─── Animations ───────────────────────────────────────────────── */
+  --animate-pulse-live: pulse-live 1.8s ease-out infinite;
+  --animate-pulse-warn: pulse-warn 1.8s ease-out infinite;
+  --animate-pulse-danger: pulse-danger 1.8s ease-out infinite;
+  --animate-fade-in: fade-in 220ms ease-out both;
+}
+
+/* ─── Keyframes ─────────────────────────────────────────────────── */
+
+@keyframes pulse-live {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(0, 255, 170, 0.55);
   }
-
-  html,
-  body {
-    @apply bg-clinical-surface text-clinical-ink font-sans antialiased;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  }
-
-  /* Tabular numbers wherever a clinical value is rendered. */
-  .num,
-  [data-num] {
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Accessible focus ring for keyboard navigation. */
-  :focus-visible {
-    @apply outline-none ring-2 ring-clinical-accent ring-offset-2 ring-offset-clinical-surface;
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 10px rgba(0, 255, 170, 0);
   }
 }
 
-@layer components {
-  .clinical-card {
-    @apply rounded-card border border-clinical-border bg-clinical-panel shadow-card transition-shadow;
+@keyframes pulse-warn {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(255, 184, 41, 0.55);
   }
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 10px rgba(255, 184, 41, 0);
+  }
+}
 
-  .clinical-card-hover {
-    @apply hover:shadow-cardHover;
+@keyframes pulse-danger {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
   }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+}
 
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
   }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
-  .btn-primary {
-    @apply btn bg-clinical-accent text-white hover:bg-clinical-accentStrong;
-  }
+/* ─── Base styles ───────────────────────────────────────────────── */
 
-  .btn-ghost {
-    @apply btn border border-clinical-border bg-clinical-panel text-clinical-ink hover:bg-clinical-subtle;
-  }
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: var(--color-clinical-surface);
+  color: var(--color-clinical-ink);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* Tabular numbers wherever a clinical value is rendered. */
+.num,
+[data-num] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessible focus ring for keyboard navigation. */
+:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-void),
+    0 0 0 4px var(--color-clinical-accent);
+}
+
+/* ─── Component utilities ───────────────────────────────────────── */
+
+.clinical-card {
+  @apply rounded-card border border-clinical-border bg-clinical-panel transition-shadow;
+}
+
+.clinical-card-hover {
+  @apply hover:shadow-card-hover;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 bg-clinical-accent text-white hover:bg-clinical-accent-strong;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 border border-clinical-border text-clinical-ink hover:bg-clinical-subtle;
 }
