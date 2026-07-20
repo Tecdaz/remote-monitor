@@ -19,19 +19,21 @@ import {
   type BeatMode,
 } from '../../lib/signal-processing'
 import type { Measurement } from '../../lib/types'
+import {
+  TOOLTIP_STYLE,
+  chartAxis,
+  chartGrid,
+  chartHf,
+  chartLf,
+  chartLine,
+  chartVlf,
+  borderStrong,
+  inkFaint,
+} from '../../lib/theme-colors'
 
 interface FrequencyChartProps {
   measurements: Measurement[]
   mode: BeatMode
-}
-
-const TOOLTIP_STYLE = {
-  backgroundColor: '#FFFFFF',
-  border: '1px solid #DDE3EC',
-  borderRadius: 8,
-  boxShadow: '0 4px 16px rgba(15, 23, 42, 0.08)',
-  fontSize: 12,
-  color: '#0F172A',
 }
 
 const BAND_LEGEND: Array<{
@@ -89,49 +91,49 @@ export function FrequencyChart({ measurements, mode }: FrequencyChartProps) {
               <ReferenceArea
                 x1={HRV_BANDS.VLF.lo}
                 x2={HRV_BANDS.VLF.hi}
-                fill="#A78BFA"
+                fill={chartVlf}
                 fillOpacity={0.12}
               />
               <ReferenceArea
                 x1={HRV_BANDS.LF.lo}
                 x2={HRV_BANDS.LF.hi}
-                fill="#FBBF24"
+                fill={chartLf}
                 fillOpacity={0.12}
               />
               <ReferenceArea
                 x1={HRV_BANDS.HF.lo}
                 x2={HRV_BANDS.HF.hi}
-                fill="#14B8A6"
+                fill={chartHf}
                 fillOpacity={0.12}
               />
               <XAxis
                 dataKey="frequency"
                 type="number"
                 domain={[0, 0.5]}
-                stroke="#64748B"
-                tick={{ fill: '#64748B', fontSize: 11 }}
-                tickLine={{ stroke: '#DDE3EC' }}
-                axisLine={{ stroke: '#DDE3EC' }}
+                stroke={chartAxis}
+                tick={{ fill: chartAxis, fontSize: 11 }}
+                tickLine={{ stroke: borderStrong }}
+                axisLine={{ stroke: borderStrong }}
                 tickFormatter={(v) => formatHz(Number(v), 2)}
                 label={{
                   value: 'Frecuencia (Hz)',
                   position: 'bottom',
                   offset: -4,
-                  fill: '#64748B',
+                  fill: chartAxis,
                   style: { fontSize: 11 },
                 }}
               />
               <YAxis
                 domain={[0, maxPower * 1.1]}
-                stroke="#64748B"
-                tick={{ fill: '#64748B', fontSize: 11 }}
-                tickLine={{ stroke: '#DDE3EC' }}
-                axisLine={{ stroke: '#DDE3EC' }}
+                stroke={chartAxis}
+                tick={{ fill: chartAxis, fontSize: 11 }}
+                tickLine={{ stroke: borderStrong }}
+                axisLine={{ stroke: borderStrong }}
                 label={{
                   value: 'PSD (ms²/Hz)',
                   angle: -90,
                   position: 'insideLeft',
-                  fill: '#64748B',
+                  fill: chartAxis,
                   style: { fontSize: 11 },
                 }}
               />
@@ -143,8 +145,8 @@ export function FrequencyChart({ measurements, mode }: FrequencyChartProps) {
               <Area
                 type="monotone"
                 dataKey="power"
-                stroke="#0D9488"
-                fill="#0D9488"
+                stroke={chartLine}
+                fill={chartLine}
                 fillOpacity={0.25}
                 strokeWidth={1.75}
                 isAnimationActive={false}

@@ -21,20 +21,19 @@ import {
 } from '../../lib/signal-processing'
 import type { ConnectionState } from '../../lib/connection-state'
 import type { Measurement } from '../../lib/types'
+import {
+  TOOLTIP_STYLE,
+  chartAxis,
+  chartLine,
+  chartLineLatest,
+  borderStrong,
+  panel,
+} from '../../lib/theme-colors'
 
 interface TachogramChartProps {
   measurements: Measurement[]
   mode: BeatMode
   connectionState: ConnectionState
-}
-
-const TOOLTIP_STYLE = {
-  backgroundColor: '#FFFFFF',
-  border: '1px solid #DDE3EC',
-  borderRadius: 8,
-  boxShadow: '0 4px 16px rgba(15, 23, 42, 0.08)',
-  fontSize: 12,
-  color: '#0F172A',
 }
 
 /**
@@ -101,23 +100,23 @@ export function TachogramChart({
               domain={['dataMin', 'dataMax']}
               scale="time"
               tickFormatter={(value) => formatClockTime(value as number)}
-              stroke="#64748B"
-              tick={{ fill: '#64748B', fontSize: 11 }}
-              tickLine={{ stroke: '#DDE3EC' }}
-              axisLine={{ stroke: '#DDE3EC' }}
+              stroke={chartAxis}
+              tick={{ fill: chartAxis, fontSize: 11 }}
+              tickLine={{ stroke: borderStrong }}
+              axisLine={{ stroke: borderStrong }}
               minTickGap={32}
             />
             <YAxis
               domain={[0, 2000]}
-              stroke="#64748B"
-              tick={{ fill: '#64748B', fontSize: 11 }}
-              tickLine={{ stroke: '#DDE3EC' }}
-              axisLine={{ stroke: '#DDE3EC' }}
+              stroke={chartAxis}
+              tick={{ fill: chartAxis, fontSize: 11 }}
+              tickLine={{ stroke: borderStrong }}
+              axisLine={{ stroke: borderStrong }}
               label={{
                 value: 'IBI (ms)',
                 angle: -90,
                 position: 'insideLeft',
-                fill: '#64748B',
+                fill: chartAxis,
                 style: { fontSize: 11 },
               }}
             />
@@ -129,7 +128,7 @@ export function TachogramChart({
             <Line
               type="monotone"
               dataKey="ibiMs"
-              stroke="#0D9488"
+              stroke={chartLine}
               strokeWidth={1.75}
               dot={false}
               isAnimationActive={false}
@@ -140,8 +139,8 @@ export function TachogramChart({
                 x={latest.timestampMs}
                 y={latest.ibiMs}
                 r={5}
-                fill="#0F766E"
-                stroke="#FFFFFF"
+                fill={chartLineLatest}
+                stroke={panel}
                 strokeWidth={2}
                 isFront
                 ifOverflow="extendDomain"

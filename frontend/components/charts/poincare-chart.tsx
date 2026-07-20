@@ -30,19 +30,18 @@ import {
   temporalColorScale,
 } from '../../lib/temporal-color-scale'
 import type { Measurement } from '../../lib/types'
+import {
+  TOOLTIP_STYLE,
+  chartAxis,
+  chartBeatNewest,
+  chartGrid,
+  chartIdentity,
+  borderStrong,
+} from '../../lib/theme-colors'
 
 interface PoincareChartProps {
   measurements: Measurement[]
   mode: BeatMode
-}
-
-const TOOLTIP_STYLE = {
-  backgroundColor: '#FFFFFF',
-  border: '1px solid #DDE3EC',
-  borderRadius: 8,
-  boxShadow: '0 4px 16px rgba(15, 23, 42, 0.08)',
-  fontSize: 12,
-  color: '#0F172A',
 }
 
 type PoincareTooltipProps = TooltipProps<number, string>
@@ -105,7 +104,7 @@ function createTemporalCircleShape(
           newestTimestampMs,
         )}
         fillOpacity={0.9}
-        stroke={isNewest ? '#334155' : 'none'}
+        stroke={isNewest ? chartBeatNewest : 'none'}
         strokeWidth={isNewest ? 1.5 : 0}
       />
     )
@@ -299,20 +298,20 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
     >
       <ResponsiveContainer width="100%" height={320}>
         <ScatterChart margin={{ top: 16, right: 24, bottom: 24, left: 16 }}>
-          <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
+          <CartesianGrid stroke={chartGrid} strokeDasharray="3 3" />
           <XAxis
             dataKey="x"
             type="number"
             domain={domain}
-            stroke="#64748B"
-            tick={{ fill: '#64748B', fontSize: 11 }}
-            tickLine={{ stroke: '#DDE3EC' }}
-            axisLine={{ stroke: '#DDE3EC' }}
+            stroke={chartAxis}
+            tick={{ fill: chartAxis, fontSize: 11 }}
+            tickLine={{ stroke: borderStrong }}
+            axisLine={{ stroke: borderStrong }}
             label={{
               value: 'IBI[n] (ms)',
               position: 'bottom',
               offset: -4,
-              fill: '#64748B',
+              fill: chartAxis,
               style: { fontSize: 11 },
             }}
           />
@@ -320,15 +319,15 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
             dataKey="y"
             type="number"
             domain={domain}
-            stroke="#64748B"
-            tick={{ fill: '#64748B', fontSize: 11 }}
-            tickLine={{ stroke: '#DDE3EC' }}
-            axisLine={{ stroke: '#DDE3EC' }}
+            stroke={chartAxis}
+            tick={{ fill: chartAxis, fontSize: 11 }}
+            tickLine={{ stroke: borderStrong }}
+            axisLine={{ stroke: borderStrong }}
             label={{
               value: 'IBI[n+1] (ms)',
               angle: -90,
               position: 'insideLeft',
-              fill: '#64748B',
+              fill: chartAxis,
               style: { fontSize: 11 },
             }}
           />
@@ -341,7 +340,7 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
               { x: domain[0], y: domain[0] },
               { x: domain[1], y: domain[1] },
             ]}
-            stroke="#94A3B8"
+            stroke={chartIdentity}
             strokeDasharray="5 5"
             strokeWidth={1}
             ifOverflow="extendDomain"
@@ -358,7 +357,7 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
             name="Identidad"
             data={identityLine}
             fill="transparent"
-            line={{ stroke: '#94A3B8', strokeWidth: 1, strokeDasharray: '5 5' }}
+            line={{ stroke: chartIdentity, strokeWidth: 1, strokeDasharray: '5 5' }}
             shape={() => <g />}
             legendType="line"
             isAnimationActive={false}
