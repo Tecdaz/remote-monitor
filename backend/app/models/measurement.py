@@ -61,7 +61,8 @@ class ClinicalMeasurement(Base):
         ARRAY(BigInteger), nullable=True
     )
     # Per-beat quality flags from the Samsung sensor.
-    # 0 = noisy/rejected, non-zero = accepted/clean.
+    # 0 = normal/valid beat (accept), -1 = error/invalid beat (reject).
+    # Mirrors the Samsung Health IBI_STATUS_LIST convention.
     # Stored as `integer[]`. NULL when the device does not expose status,
     # or when the status array length does not match `ibis_ms`.
     ibis_status: Mapped[list[int] | None] = mapped_column(

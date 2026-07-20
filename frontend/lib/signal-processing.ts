@@ -87,7 +87,11 @@ function hannWindow(n: number): number[] {
  * Timestamps are reconstructed by walking backwards from each batch's
  * reference timestamp, exactly the same math used for the tachogram.
  *
- * - `mode === 'filtered'` drops beats whose `ibis_status[i] === 0`.
+ * - `mode === 'filtered'` keeps beats where `ibis_status[i] === 0`
+ *   (normal/valid) and drops beats where `ibis_status[i] !== 0`
+ *   (error/invalid). If both `ibis_status` and `ibis_ms` arrays are
+ *   present and a status slot has a value other than `0`, the beat is
+ *   dropped.
  * - `mode === 'raw'` keeps every beat.
  * - `ibis_status == null` or length-mismatched is treated as "all accepted".
  */

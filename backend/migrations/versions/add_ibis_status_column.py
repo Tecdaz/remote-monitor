@@ -6,8 +6,9 @@ Create Date: 2026-07-15 00:00:00.000000
 
 Adds a nullable `ibis_status` integer array to `clinical.measurements`.
 The array carries per-beat quality flags from the Samsung sensor:
-0 = noisy/rejected, non-zero = accepted/clean. When present its length
-must match `ibis_ms`.
+0 = normal/valid beat (accept), -1 = error/invalid beat (reject).
+Mirrors the Samsung Health IBI_STATUS_LIST convention. When present its
+length must match `ibis_ms`.
 """
 from __future__ import annotations
 

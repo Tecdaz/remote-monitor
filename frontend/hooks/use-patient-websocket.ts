@@ -33,6 +33,7 @@ export function usePatientWebSocket(patientId: string, queryClient: QueryClient)
       socket.onopen = () => {
         attemptRef.current = 0
         setConnectionState('connected')
+        queryClient.invalidateQueries({ queryKey: measurementsKey(patientId) })
       }
 
       socket.onmessage = (event) => {
