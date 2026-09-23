@@ -62,8 +62,9 @@ async def test_migrations_ibis_status_column_round_trip(round_trip_db: None) -> 
     """REQ-NOISE-BE-01: the new ibis_status column is added and round-trips.
 
     After upgrading to head we insert and read an integer array to prove
-    the column exists and stores data; after downgrading one step the
-    column is gone.
+    the column exists and stores data; after downgrading to before
+    ``add_ibis_status_column`` (explicit target, not ``-1``, so this test
+    stays correct as new migrations land on top) the column is gone.
     """
     import os
 
@@ -102,7 +103,9 @@ async def test_migrations_ibis_status_column_round_trip(round_trip_db: None) -> 
     finally:
         await conn.close()
 
-    _alembic("downgrade", "-1")
+    # Downgrade explicitly to before ibis_status (not `-1`, which would
+    # now mean "before hr_status" with the new chain).
+    _alembic("downgrade", "add_ibis_status_column-1")
     conn2 = await asyncpg.connect(dsn)
     try:
         cols = await conn2.fetch(
@@ -158,7 +161,9 @@ async def test_migrations_hr_status_column_round_trip(round_trip_db: None) -> No
     finally:
         await conn.close()
 
-    _alembic("downgrade", "-1")
+    # Downgrade explicitly to before hr_status (not `-1`, so this test
+    # stays correct as new migrations land on top).
+    _alembic("downgrade", "add_hr_status_column-1")
     conn2 = await asyncpg.connect(dsn)
     try:
         cols = await conn2.fetch(

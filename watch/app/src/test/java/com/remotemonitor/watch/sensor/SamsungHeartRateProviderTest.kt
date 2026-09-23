@@ -160,6 +160,7 @@ class SamsungHeartRateProviderTest {
                 listOf(800, 820, 790)
             every { dp1.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns
                 listOf(1, 1, 1)
+            every { dp1.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns 1
 
             // Second + third DataPoints: bpm with NO IBI.
             // Mirrors the SDK's display-off behavior where only the
@@ -168,11 +169,13 @@ class SamsungHeartRateProviderTest {
             every { dp2.getValue(ValueKey.HeartRateSet.HEART_RATE) } returns 73
             every { dp2.getValue(ValueKey.HeartRateSet.IBI_LIST) } returns null
             every { dp2.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns null
+            every { dp2.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns 1
 
             val dp3 = mockk<DataPoint>()
             every { dp3.getValue(ValueKey.HeartRateSet.HEART_RATE) } returns 74
             every { dp3.getValue(ValueKey.HeartRateSet.IBI_LIST) } returns null
             every { dp3.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns null
+            every { dp3.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns 1
 
             val tracker = mockk<HealthTracker>(relaxed = true)
             every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
@@ -258,6 +261,7 @@ class SamsungHeartRateProviderTest {
                 listOf(800, 820, 790)
             every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns
                 listOf(1, 1, 1)
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns 1
 
             val tracker = mockk<HealthTracker>(relaxed = true)
             every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
@@ -608,6 +612,7 @@ class SamsungHeartRateProviderTest {
                 listOf(800, 820, 900)
             every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns
                 listOf(1, 0, 1)
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns 1
 
             val tracker = mockk<HealthTracker>(relaxed = true)
             every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
