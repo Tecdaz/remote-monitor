@@ -63,6 +63,26 @@ class MeasurementBatch(BaseModel):
             "responsibility."
         ),
     )
+    # feat-watch-hr-status-surface: Samsung HEART_RATE_STATUS per-reading
+    # lifecycle code. Documented values live in the Samsung API Reference
+    # (`ValueKey.HeartRateSet.html`):
+    #   1  = successful HR measurement
+    #   0  = initial state, OR a higher-priority sensor (e.g. BIA) operating
+    #  -2  = wearable movement detected
+    #  -3  = wearable detached (off-wrist)
+    #  -8  = PPG signal weak / user moved
+    #  -10 = PPG signal too weak / too much motion
+    #  -999 = a higher-priority sensor (e.g. BIA) operating
+    # `None` when the SDK did not provide a status for this batch.
+    hr_status: int | None = Field(
+        default=None,
+        description=(
+            "Samsung HEART_RATE_STATUS per-reading lifecycle code. "
+            "Documented values: 1=success, 0=initial/BIA, -2=movement, "
+            "-3=off-wrist, -8=weak PPG, -10=too weak, -999=BIA. "
+            "Null when the SDK did not provide a status."
+        ),
+    )
 
     @field_validator("ibis_ms")
     @classmethod
@@ -92,6 +112,24 @@ class MeasurementBatch(BaseModel):
             # introduce in later releases).
             if not (-1 <= x <= 2_147_483_647):
                 raise ValueError(f"ibis_status value {x} out of [-1, 2147483647]")
+        return v
+
+    @field_validator("hr_status")
+    @classmethod
+    def _validate_hr_status(cls, v: int | None) -> int | None:
+        # feat-watch-hr-status-surface: enforce the Samsung-documented
+        # enumeration so a stale or buggy client that sends an unknown
+        # code (e.g. a future SDK release adding a new sentinel) gets
+        # rejected at the boundary rather than silently corrupting the
+        # analytics dataset. The set is closed; if Samsung adds a new
+        # code, this validator is the one and only place to extend it.
+        if v is None:
+            return v
+        if v not in {-999, -10, -8, -3, -2, 0, 1}:
+            raise ValueError(
+                f"hr_status value {v} not in Samsung-documented set "
+                f"{{-999, -10, -8, -3, -2, 0, 1}}"
+            )
         return v
 
 

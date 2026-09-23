@@ -50,14 +50,21 @@ def _valid_item_with_ibis(
     local_id: UUID | None = None,
     ibis_ms: list[int] | None = None,
     ibis_status: list[int] | None = None,
+    hr_status: int | None = None,
 ) -> dict:
     """A valid ``MeasurementBatch`` carrying an ``ibis_ms`` list
     (REQ-WATCH-HR-IBI-11 S01). Defaults to a 2-sample list.
+
+    ``hr_status`` (feat-watch-hr-status-surface) is optional — `None`
+    omits the key entirely so the test exercises the backwards-compat
+    path where old clients send no status.
     """
     item = _valid_item(local_id)
     item["ibis_ms"] = ibis_ms if ibis_ms is not None else [800, 820]
     if ibis_status is not None:
         item["ibis_status"] = ibis_status
+    if hr_status is not None:
+        item["hr_status"] = hr_status
     return item
 
 
@@ -769,6 +776,133 @@ class TestIngestService:
         assert len(response.rejected) == 1
         # Field-level clamp fires first; pair rule is unreachable here.
         assert "ibis_ms value 0" in response.rejected[0].reason
+
+    # --- feat-watch-hr-status-surface: HEART_RATE_STATUS -------------------
+
+    async def test_upload_persists_hr_status_to_clinical_measurements(
+        self, session: AsyncSession
+    ) -> None:
+        """REQ-WATCH-HR-STATUS-01: a batch with ``hr_status=1`` stores the
+        value in ``clinical.measurements.hr_status``. End-to-end: Pydantic
+        validator -> ingest service -> ORM column.
+        """
+        path_pid = uuid4()
+        local_id = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                local_id,
+                ibis_ms=[800, 820],
+                ibis_status=[0, 0],
+                hr_status=1,  # documented success code
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="2",
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 1
+        assert response.rejected == []
+
+        row = (
+            await session.execute(
+                select(ClinicalMeasurement).where(
+                    ClinicalMeasurement.patient_id == path_pid
+                )
+            )
+        ).scalars().one()
+        assert row.hr_status == 1
+
+    async def test_upload_persists_off_wrist_hr_status_minus_3(
+        self, session: AsyncSession
+    ) -> None:
+        """The off-wrist code (-3) is the operationally most important
+        status: it lets the backend mark the BPM as "sensor off-wrist"
+        without inferring it from the BPM<=0 heuristic. Round-trip
+        through the column to catch any future regression.
+        """
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                ibis_ms=[800, 820],
+                ibis_status=[0, 0],
+                hr_status=-3,  # wearable detached
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="3",
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 1
+
+        row = (
+            await session.execute(
+                select(ClinicalMeasurement).where(
+                    ClinicalMeasurement.patient_id == path_pid
+                )
+            )
+        ).scalars().one()
+        assert row.hr_status == -3
+
+    async def test_upload_without_hr_status_stores_null(
+        self, session: AsyncSession
+    ) -> None:
+        """Backwards-compat: an old client omitting ``hr_status`` ingests
+        cleanly and the column is NULL.
+        """
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                ibis_ms=[800, 820],
+                ibis_status=[0, 0],
+                # hr_status omitted -> None
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="4",
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 1
+
+        row = (
+            await session.execute(
+                select(ClinicalMeasurement).where(
+                    ClinicalMeasurement.patient_id == path_pid
+                )
+            )
+        ).scalars().one()
+        assert row.hr_status is None
+
+    async def test_upload_rejects_hr_status_value_out_of_set(
+        self, session: AsyncSession
+    ) -> None:
+        """The Pydantic validator enforces the closed Samsung-documented
+        set {-999, -10, -8, -3, -2, 0, 1}. An item carrying a stale or
+        unknown code (e.g. a future SDK release with a new sentinel) is
+        rejected individually so the rest of the batch still ingests.
+        """
+        path_pid = uuid4()
+        items = [
+            _valid_item_with_ibis(
+                ibis_ms=[800, 820],
+                ibis_status=[0, 0],
+                hr_status=-7,  # NOT in the documented set
+            )
+        ]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="5",
+            raw_items=items,
+        )
+        assert len(response.accepted_ids) == 0
+        assert len(response.rejected) == 1
+        assert "hr_status value -7" in response.rejected[0].reason
 
     # --- patient inactivity refresh (sdd/feat-patient-inactivity-sweep) --
 
