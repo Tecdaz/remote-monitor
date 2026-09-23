@@ -14,6 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *   flags (REQ-NOISE-WATCH-03). Real [MIGRATION_4_5] preserves pending rows;
  *   [fallbackToDestructiveMigration] in [com.remotemonitor.watch.WatchApplication]
  *   is a safety net only.
+ * - Version 6 — added `hr_status` INTEGER NULL column for the Samsung
+ *   `HEART_RATE_STATUS` per-reading lifecycle code (feat-watch-hr-status-
+ *   surface). Real [MIGRATION_5_6] preserves pending rows.
  * - Schema is exported to `app/schemas/` by the Room compiler
  *   (KSP arg `room.schemaLocation` in `app/build.gradle.kts`).
  *
@@ -27,7 +30,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [MeasurementEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,6 +46,18 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE measurements ADD COLUMN ibis_status TEXT")
+            }
+        }
+
+        /**
+         * feat-watch-hr-status-surface: explicit migration from v5 to v6
+         * adds the `hr_status` INTEGER NULL column for the Samsung
+         * `HEART_RATE_STATUS` per-reading lifecycle code. SQLite stores
+         * it as a nullable plain integer (no converter required).
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE measurements ADD COLUMN hr_status INTEGER")
             }
         }
     }

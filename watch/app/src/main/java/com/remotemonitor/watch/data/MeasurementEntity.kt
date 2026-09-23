@@ -30,6 +30,14 @@ import com.squareup.moshi.Json
  * `0` = normal/valid beat, `-1` = error/invalid beat (Samsung SDK
  * convention). `null` when the
  * SDK did not provide a matching status array.
+ *
+ * **`hr_status`**: per-reading lifecycle code from the Samsung
+ * `HEART_RATE_STATUS` field. Documented values (Samsung API Reference
+ * `ValueKey.HeartRateSet.html`): `1` = success, `0` = initial or BIA
+ * operating, `-2` = movement, `-3` = off-wrist, `-8` = weak PPG,
+ * `-10` = too weak, `-999` = BIA operating. `null` when the SDK did
+ * not provide a status for this batch (e.g. the first sample after
+ * wakeup). Added in the `feat-watch-hr-status-surface` cycle.
  */
 @Entity(
     tableName = "measurements",
@@ -57,4 +65,7 @@ data class MeasurementEntity(
     @ColumnInfo(name = "ibis_status")
     @Json(name = "ibis_status")
     val ibisStatus: List<Int>? = null,
+    @ColumnInfo(name = "hr_status")
+    @Json(name = "hr_status")
+    val hrStatus: Int? = null,
 )

@@ -116,6 +116,14 @@ class SensorOrchestrator(
                             //  -1  = error/invalid beat (reject)
                             val ibis = bpmReading?.ibis
                             val ibisStatus = bpmReading?.ibisStatus?.takeIf { it.size == ibis?.size ?: 0 }
+                            // feat-watch-hr-status-surface: pass the Samsung
+                            // per-reading lifecycle status through to Room
+                            // verbatim. The provider already filters out the
+                            // null/zero cases upstream; we propagate whatever
+                            // the SDK gave us (success = 1, off-wrist = -3,
+                            // BIA = -999/0, etc.) so the backend gets the
+                            // full picture for analytics.
+                            val hrStatus = bpmReading?.hrStatus
                             val row = MeasurementEntity(
                                 localId = UUID.randomUUID().toString(),
                                 timestamp = now,
@@ -123,6 +131,7 @@ class SensorOrchestrator(
                                 spo2Percent = null,
                                 ibisMs = ibis,
                                 ibisStatus = ibisStatus,
+                                hrStatus = hrStatus,
                             )
                             dao.insert(row)
                         }

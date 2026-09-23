@@ -112,6 +112,9 @@ class WatchApplication : Application() {
             // adding `ibis_status`. Destructive fallback remains as a safety
             // net for unforeseen future schema mismatches, not for this bump.
             .addMigrations(AppDatabase.MIGRATION_4_5)
+            // feat-watch-hr-status-surface: real migration preserves pending
+            // rows when adding `hr_status`. Same rationale as 4_5.
+            .addMigrations(AppDatabase.MIGRATION_5_6)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }

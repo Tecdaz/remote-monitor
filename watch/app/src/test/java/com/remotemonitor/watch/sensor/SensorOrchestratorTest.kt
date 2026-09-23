@@ -247,6 +247,78 @@ class SensorOrchestratorTest {
     }
 
     /**
+     * feat-watch-hr-status-surface: a non-null `hrStatus` from the sensor
+     * surfaces on the [MeasurementEntity] verbatim, with no coercion.
+     * This is the happy path that lets the backend distinguish a real
+     * BPM (`hr_status == 1`) from a degraded one (anything else).
+     */
+    @Test
+    fun `orchestrator forwards hrStatus verbatim to MeasurementEntity`() = runTest(UnconfinedTestDispatcher()) {
+        val heartRateSensor = FakeHeartRateSensor(
+            flowOf(
+                HeartRateReading(
+                    beatsPerMinute = 72,
+                    timestampMillis = 1_700_000_000_000L,
+                    hrStatus = 1,
+                ),
+            )
+        )
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        val dao = mockk<MeasurementDao>(relaxed = true)
+        val captured = mutableListOf<MeasurementEntity>()
+        coEvery { dao.insert(capture(captured)) } returns Unit
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = heartRateSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        orchestrator.start(backgroundScope)
+        testScheduler.advanceUntilIdle()
+
+        val row = captured.single { it.heartRateBpm == 72 }
+        assertEquals(1, row.hrStatus)
+    }
+
+    /**
+     * feat-watch-hr-status-surface: a null `hrStatus` (e.g. the first
+     * sample after wakeup, before the SDK computed a status) surfaces
+     * as `null` on the entity. Backwards-compat: old readings without
+     * a status keep persisting cleanly.
+     */
+    @Test
+    fun `null hrStatus surfaces as null on MeasurementEntity`() = runTest(UnconfinedTestDispatcher()) {
+        val heartRateSensor = FakeHeartRateSensor(
+            flowOf(
+                HeartRateReading(
+                    beatsPerMinute = 72,
+                    timestampMillis = 1_700_000_000_000L,
+                    hrStatus = null,
+                ),
+            )
+        )
+        val spO2Provider = mockk<SpO2Provider>(relaxed = true)
+        val dao = mockk<MeasurementDao>(relaxed = true)
+        val captured = mutableListOf<MeasurementEntity>()
+        coEvery { dao.insert(capture(captured)) } returns Unit
+
+        val orchestrator = SensorOrchestrator(
+            heartRateSensor = heartRateSensor,
+            spO2Provider = spO2Provider,
+            dao = dao,
+            clock = { 1_700_000_000_000L },
+        )
+
+        orchestrator.start(backgroundScope)
+        testScheduler.advanceUntilIdle()
+
+        val row = captured.single { it.heartRateBpm == 72 }
+        assertNull("null hrStatus must produce null hr_status", row.hrStatus)
+    }
+
+    /**
      * HR-only mode (product decision 2026-07-01): the orchestrator
      * MUST NOT call `spO2Provider.read()` — that call is what created
      * the binder race with the continuous HR provider. We advance
