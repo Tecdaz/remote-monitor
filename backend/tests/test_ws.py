@@ -519,6 +519,86 @@ class TestEndToEnd:
                     f"{payload['data'].get('ibis_status')!r}"
                 )
 
+    def test_post_with_hr_status_publishes_hr_status_in_ws_payload(self) -> None:
+        """feat-watch-hr-status-surface: WS frame carries hr_status when present.
+
+        Mirrors the ibis_status test above so live clients see the
+        per-reading Samsung lifecycle code (e.g. -3 off-wrist) in real
+        time, not just on the next GET /measurements refresh.
+        """
+        from app.main import app
+
+        patient_id = uuid4()
+        patient_number = "1"
+        local_id = uuid4()
+        item = _valid_measurement(local_id)
+        item["hr_status"] = -3  # wearable detached
+
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                f"/ws/patients/{patient_id}"
+            ) as ws:
+                ws.receive_json()  # WsSubscribed
+
+                q: queue.Queue = queue.Queue()
+                self._read_next_frame_bg(ws, q)
+
+                response = client.post(
+                    f"/api/v1/patients/{patient_id}/measurements",
+                    json=[item],
+                    headers={"X-Patient-Number": patient_number},
+                )
+                assert response.status_code == 200, response.text
+
+                kind, payload = q.get(timeout=2.0)
+                assert kind == "ok", f"reader failed: {payload!r}"
+                assert payload["type"] == "measurement.created"
+                assert "hr_status" in payload["data"], (
+                    f"hr_status missing from WS payload: {payload['data']!r}"
+                )
+                assert payload["data"]["hr_status"] == -3, (
+                    f"expected hr_status=-3, got "
+                    f"{payload['data'].get('hr_status')!r}"
+                )
+
+    def test_post_without_hr_status_publishes_null_in_ws_payload(self) -> None:
+        """Backwards-compat: an old client without hr_status gets a null
+        on the wire so the TS type contract (``number | null``) holds.
+        """
+        from app.main import app
+
+        patient_id = uuid4()
+        patient_number = "1"
+        local_id = uuid4()
+        item = _valid_measurement(local_id)
+        # hr_status intentionally omitted
+
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                f"/ws/patients/{patient_id}"
+            ) as ws:
+                ws.receive_json()  # WsSubscribed
+
+                q: queue.Queue = queue.Queue()
+                self._read_next_frame_bg(ws, q)
+
+                response = client.post(
+                    f"/api/v1/patients/{patient_id}/measurements",
+                    json=[item],
+                    headers={"X-Patient-Number": patient_number},
+                )
+                assert response.status_code == 200, response.text
+
+                kind, payload = q.get(timeout=2.0)
+                assert kind == "ok", f"reader failed: {payload!r}"
+                assert "hr_status" in payload["data"], (
+                    f"hr_status missing from WS payload: {payload['data']!r}"
+                )
+                assert payload["data"]["hr_status"] is None, (
+                    f"expected hr_status=null, got "
+                    f"{payload['data'].get('hr_status')!r}"
+                )
+
 
 # =========================================================================
 # T4.4 - End-to-end WS suite covering all 5 REQ-WS-01..05

@@ -211,6 +211,9 @@ async def list_measurements(
             spo2_percent=row.spo2_percent,
             ibis_ms=row.ibis_ms,
             ibis_status=row.ibis_status,
+            # feat-watch-hr-status-surface: include the per-reading
+            # Samsung lifecycle code in the list response.
+            hr_status=row.hr_status,
         )
         for row in page
     ]
@@ -262,4 +265,7 @@ async def get_measurement(
         spo2_percent=row.spo2_percent,
         ibis_ms=row.ibis_ms,
         ibis_status=row.ibis_status,
+        # feat-watch-hr-status-surface: include the per-reading Samsung
+        # lifecycle code in the single-measurement response.
+        hr_status=row.hr_status,
     )

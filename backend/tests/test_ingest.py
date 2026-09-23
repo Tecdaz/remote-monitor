@@ -1607,3 +1607,84 @@ class TestMeasurementsRouter:
         assert response.status_code == 200
         body = response.json()
         assert body["ibis_status"] == [0, 0]
+
+    # --- feat-watch-hr-status-surface: hr_status in GET responses -------
+
+    async def test_get_measurements_includes_hr_status(
+        self, client: AsyncClient
+    ) -> None:
+        """list_measurements surfaces hr_status on every item."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        item = _valid_item_with_ibis(
+            local_id,
+            ibis_ms=[800, 820],
+            ibis_status=[0, 0],
+            hr_status=-3,  # wearable detached
+        )
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=[item],
+            headers={"X-Patient-Number": "1"},
+        )
+        response = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["items"]) == 1
+        assert body["items"][0]["hr_status"] == -3
+
+    async def test_get_measurements_includes_hr_status_null(
+        self, client: AsyncClient
+    ) -> None:
+        """Backwards-compat: an old client omitting hr_status sees a null
+        on the wire, never an absent key.
+        """
+        path_pid = uuid4()
+        local_id = uuid4()
+        item = _valid_item_with_ibis(
+            local_id,
+            ibis_ms=[800, 820],
+            ibis_status=[0, 0],
+            # hr_status omitted -> None
+        )
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=[item],
+            headers={"X-Patient-Number": "2"},
+        )
+        response = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["items"][0]["hr_status"] is None
+
+    async def test_get_measurement_by_id_includes_hr_status(
+        self, client: AsyncClient
+    ) -> None:
+        """get_measurement surfaces hr_status on the single-item response."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        item = _valid_item_with_ibis(
+            local_id,
+            ibis_ms=[800, 820],
+            ibis_status=[0, 0],
+            hr_status=1,  # successful HR measurement
+        )
+        await client.post(
+            f"/api/v1/patients/{path_pid}/measurements",
+            json=[item],
+            headers={"X-Patient-Number": "3"},
+        )
+        listed = await client.get(
+            f"/api/v1/patients/{path_pid}/measurements"
+        )
+        target_id = listed.json()["items"][0]["id"]
+        response = await client.get(
+            f"/api/v1/measurements/{target_id}"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["hr_status"] == 1

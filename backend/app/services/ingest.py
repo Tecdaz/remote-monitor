@@ -255,6 +255,9 @@ async def upload_measurements(
                             "received_at": received_at,
                             "ibis_ms": item.ibis_ms,
                             "ibis_status": item.ibis_status,
+                            # feat-watch-hr-status-surface: per-reading
+                            # Samsung lifecycle code (or None).
+                            "hr_status": item.hr_status,
                         }
                         for i, item in enumerate(valid_items)
                     ]
@@ -325,6 +328,10 @@ async def upload_measurements(
                     if item.ibis_status is not None
                     else None
                 ),
+                # feat-watch-hr-status-surface: per-reading Samsung
+                # lifecycle code in the WS payload so live clients see
+                # the off-wrist / BIA / success signal immediately.
+                "hr_status": item.hr_status,
             }
             try:
                 await manager.publish(
