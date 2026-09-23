@@ -247,6 +247,11 @@ components:
           items: { type: integer, minimum: -1, maximum: 2147483647 }
           default: null
           description: "Samsung IBI status. 0=valid beat, -1=error/noise. Beats with status==-1 are persisted as-is for downstream filtering; per-display filtering is the consumer's responsibility."
+        hr_status:
+          type: [integer, "null"]
+          enum: [-999, -10, -8, -3, -2, 0, 1, null]
+          default: null
+          description: "Samsung HEART_RATE_STATUS per-reading lifecycle code (feat-watch-hr-status-surface). Documented in the Samsung API Reference at `ValueKey.HeartRateSet.html`. Valid values: `1` = successful HR measurement, `0` = initial state OR a higher-priority sensor (e.g. BIA) operating, `-2` = wearable movement detected, `-3` = wearable detached (off-wrist), `-8` = PPG signal weak / user moved, `-10` = PPG signal too weak / too much motion, `-999` = a higher-priority sensor (e.g. BIA) operating. `null` when the SDK did not provide a status for this batch."
     Measurement:
       allOf:
         - $ref: "#/components/schemas/MeasurementBatch"

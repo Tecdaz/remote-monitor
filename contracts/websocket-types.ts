@@ -18,6 +18,13 @@ export interface Measurement {
    * null when the device does not provide status.
    */
   ibis_status: number[] | null;
+  /**
+   * Samsung HEART_RATE_STATUS per-reading lifecycle code.
+   * Documented in the Samsung API Reference at `ValueKey.HeartRateSet.html`.
+   * 1 = success; 0 = initial or BIA operating; -2 = movement; -3 = off-wrist;
+   * -8 = weak PPG; -10 = too weak; -999 = BIA operating; null when not provided.
+   */
+  hr_status: number | null;
   received_at: string;
 }
 
