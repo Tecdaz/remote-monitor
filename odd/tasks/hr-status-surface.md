@@ -144,7 +144,28 @@ the user's decisions under ordinary repo policy.
   `samsung/heart-rate-status-values`). Discovery contradicts the existing
   comment in `SamsungHeartRateProviderTest.kt:653`.
 - 2026-09-23: user decision — surface through full pipeline, no UI change.
+- 2026-09-23: cycle closed.
+  - 7 work-unit commits on `feat-watch-hr-status-surface`.
+  - watch: 116 tests pass (`./gradlew :app:testDebugUnitTest`).
+  - backend: 113 tests pass (`uv run pytest`, against a fresh
+    `docker compose up -d postgres`).
+  - migration round-trip verified locally (upgrade head -> downgrade
+    to add_hr_status_column-1 -> column gone).
+  - Room schema exported to v6 (new column visible in the JSON).
+
+## Final commit list
+
+1. `feat(watch): surface HEART_RATE_STATUS in HeartRateReading`
+2. `feat(watch): persist hr_status in Room via migration 5_6`
+3. `docs(contracts): add hr_status to openapi + data-models + ws types`
+4. `feat(backend): add hr_status to MeasurementBatch with validator`
+5. `feat(backend): add hr_status column + alembic migration`
+6. `feat(backend): propagate hr_status through ingest + read + ws`
+7. `test: verification pass for feat-watch-hr-status-surface`
 
 ## Next step
 
-Run T1.
+Push the branch and open a PR (user-driven; under ordinary repo policy).
+UI surfacing (badge in HomeScreen) is a deferred cycle — the data is
+collected and persisted, the operator can decide when to ship the
+consumer side.
