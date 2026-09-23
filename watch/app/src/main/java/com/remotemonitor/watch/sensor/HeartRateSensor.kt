@@ -35,10 +35,23 @@ interface HeartRateSensor {
  * the Samsung `HEART_RATE_CONTINUOUS` tracker. Both are defaulted to
  * `null` at the END of the parameter list so existing call sites
  * (`SensorOrchestratorTest`, etc.) keep compiling without changes.
+ *
+ * [hrStatus] is added by the `feat-watch-hr-status-surface` cycle to
+ * carry the Samsung `HEART_RATE_STATUS` per-reading lifecycle code.
+ * Documented values (Samsung API Reference `ValueKey.HeartRateSet.html`):
+ *   `1`  = successful HR measurement
+ *   `0`  = initial state, OR a higher-priority sensor (e.g. BIA) operating
+ *  `-2`  = wearable movement detected
+ *  `-3`  = wearable detached (off-wrist)
+ *  `-8`  = PPG signal weak / user moved
+ *  `-10` = PPG signal too weak / too much motion
+ *  `-999`= a higher-priority sensor (e.g. BIA) operating
+ * `null` when the SDK did not provide a status for this batch.
  */
 data class HeartRateReading(
     val beatsPerMinute: Int,
     val timestampMillis: Long,
     val ibis: List<Long>? = null,
     val ibisStatus: List<Int>? = null,
+    val hrStatus: Int? = null,
 )

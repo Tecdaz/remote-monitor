@@ -138,12 +138,22 @@ class SamsungHeartRateProvider(
                         val ibis = first.getValue(ValueKey.HeartRateSet.IBI_LIST)
                             ?.map { it.toLong() }
                         val ibisStatus = first.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST)
+                        // feat-watch-hr-status-surface: capture the Samsung
+                        // per-reading lifecycle status. Documented values
+                        // live in the API Reference `ValueKey.HeartRateSet.
+                        // html` (see [HeartRateReading.hrStatus] KDoc).
+                        // We pass through whatever the SDK gives us — `null`
+                        // when the batch carries no status — and do NOT gate
+                        // on `STATUS == 1` here: the backend gets the full
+                        // picture for offline analysis.
+                        val hrStatus = first.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS)
                         trySend(
                             HeartRateReading(
                                 beatsPerMinute = validBpm ?: 0,
                                 timestampMillis = clock(),
                                 ibis = ibis,
                                 ibisStatus = ibisStatus,
+                                hrStatus = hrStatus,
                             ),
                         )
                     }

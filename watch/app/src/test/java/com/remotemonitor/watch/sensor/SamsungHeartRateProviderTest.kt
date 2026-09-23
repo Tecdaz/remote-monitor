@@ -65,13 +65,16 @@ class SamsungHeartRateProviderTest {
             val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
 
             // One DataPoint carrying bpm=72, ibis=[800,820,790] (Int),
-            // and matching status ints. The GREEN impl converts Int->Long.
+            // matching status ints, and HEART_RATE_STATUS=1 (success).
+            // The GREEN impl converts Int->Long and passes the status
+            // through verbatim.
             val dataPoint = mockk<DataPoint>()
             every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE) } returns 72
             every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_LIST) } returns
                 listOf(800, 820, 790)
             every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns
                 listOf(1, 1, 1)
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns 1
 
             val tracker = mockk<HealthTracker>(relaxed = true)
             every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
@@ -118,6 +121,7 @@ class SamsungHeartRateProviderTest {
             assertEquals(1_700_000_000_000L, reading.timestampMillis)
             assertEquals(listOf(800L, 820L, 790L), reading.ibis)
             assertEquals(listOf(1, 1, 1), reading.ibisStatus)
+            assertEquals(1, reading.hrStatus)
 
             job.cancel()
             testScheduler.advanceUntilIdle()
@@ -650,8 +654,12 @@ class SamsungHeartRateProviderTest {
      * DataPoint whose `IBI_LIST` and `IBI_STATUS_LIST` are null MUST
      * still emit a reading (we don't drop the BPM tick just because
      * the SDK couldn't compute IBIs in this batch). Also: a null
-     * `HEART_RATE_STATUS` (the per-reading lifecycle status — values
-     * are undocumented by Samsung) MUST NOT break the read.
+     * `HEART_RATE_STATUS` MUST NOT break the read (the SDK may omit
+     * it on the very first sample after wakeup).
+     *
+     * The full Samsung enumeration lives in the API Reference
+     * `ValueKey.HeartRateSet.html`; see [HeartRateReading.hrStatus]
+     * KDoc for the value table.
      *
      * RED proof: the current impl already handles null IBI_LIST
      * gracefully (it falls through to `trySend` with `ibis = null`).
@@ -670,10 +678,9 @@ class SamsungHeartRateProviderTest {
             every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE) } returns 72
             every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_LIST) } returns null
             every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns null
-            // The impl does NOT read HEART_RATE_STATUS today; this
-            // assert exists to guard against a future regression
-            // that adds a STATUS gate without first checking the
-            // AAR's nullability contract.
+            // A null HEART_RATE_STATUS (e.g. the first sample after
+            // wakeup, before the SDK computed a status) MUST NOT break
+            // the read; the field surfaces as `null` on the reading.
             every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns null
 
             val tracker = mockk<HealthTracker>(relaxed = true)
@@ -714,6 +721,77 @@ class SamsungHeartRateProviderTest {
             assertEquals(72, reading.beatsPerMinute)
             assertNull("null IBI_LIST must surface as null ibis", reading.ibis)
             assertNull("null IBI_STATUS_LIST must surface as null ibisStatus", reading.ibisStatus)
+            assertNull("null HEART_RATE_STATUS must surface as null hrStatus", reading.hrStatus)
+
+            job.cancel()
+            testScheduler.advanceUntilIdle()
+        }
+
+    /**
+     * feat-watch-hr-status-surface: a non-success `HEART_RATE_STATUS`
+     * is captured verbatim on the emitted [HeartRateReading]. The
+     * provider must NOT coerce / clamp / gate the value — the backend
+     * receives whatever the SDK gave, so downstream analytics can
+     * distinguish a real BPM (`1`) from a degraded reading (anything
+     * else in `{-999, -10, -8, -3, -2, 0}`).
+     *
+     * This test exercises the off-wrist code (`-3`) end-to-end because
+     * it's the most operationally important: it lets the backend mark
+     * the BPM as "sensor off-wrist" without inferring it from the
+     * `BPM <= 0` heuristic alone.
+     */
+    @Test
+    fun `propagates a non-success HEART_RATE_STATUS verbatim`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val connectionListenerSlot = slot<ConnectionListener>()
+            val trackerListenerSlot = slot<HealthTracker.TrackerEventListener>()
+
+            val dataPoint = mockk<DataPoint>()
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE) } returns 72
+            every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_LIST) } returns null
+            every { dataPoint.getValue(ValueKey.HeartRateSet.IBI_STATUS_LIST) } returns null
+            every { dataPoint.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS) } returns -3
+
+            val tracker = mockk<HealthTracker>(relaxed = true)
+            every { tracker.setEventListener(capture(trackerListenerSlot)) } answers {
+                trackerListenerSlot.captured.onDataReceived(listOf(dataPoint))
+            }
+
+            val service = mockk<HealthTrackingService>(relaxed = true)
+            every { service.connectService() } answers {
+                connectionListenerSlot.captured.onConnectionSuccess()
+            }
+            every {
+                service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
+            } returns tracker
+            every { service.disconnectService() } returns Unit
+
+            val serviceFactory: (ConnectionListener, Context) -> HealthTrackingService =
+                { listener, _ ->
+                    connectionListenerSlot.captured = listener
+                    service
+                }
+
+            val provider = SamsungHeartRateProvider(
+                context = mockk<Context>(relaxed = true),
+                serviceFactory = serviceFactory,
+                clock = { 1_700_000_000_000L },
+            )
+
+            val emissions = mutableListOf<HeartRateReading?>()
+            val job = backgroundScope.launch {
+                provider.readings.collect { emissions += it }
+            }
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(1, emissions.size)
+            val reading = emissions.single()!!
+            assertEquals(72, reading.beatsPerMinute)
+            assertEquals(
+                "off-wrist status must surface verbatim (no coercion)",
+                -3,
+                reading.hrStatus,
+            )
 
             job.cancel()
             testScheduler.advanceUntilIdle()
