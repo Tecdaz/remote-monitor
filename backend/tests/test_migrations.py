@@ -49,7 +49,7 @@ def round_trip_db() -> None:
 def test_migrations_round_trip(round_trip_db: None) -> None:
     """Apply, revert, and re-apply the current head migration.
 
-    Head is currently ``add_ibis_status_column`` (adds ibis_status to
+    Head is currently ``add_hr_status_column`` (adds hr_status to
     clinical.measurements); this guard also covers any migrations that
     came before it because the round-trip starts from base.
     """
@@ -109,6 +109,62 @@ async def test_migrations_ibis_status_column_round_trip(round_trip_db: None) -> 
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_schema = 'clinical' AND table_name = 'measurements' "
             "AND column_name = 'ibis_status'"
+        )
+        assert cols == []
+    finally:
+        await conn2.close()
+
+
+async def test_migrations_hr_status_column_round_trip(round_trip_db: None) -> None:
+    """feat-watch-hr-status-surface: the new ``hr_status`` column is added
+    on upgrade and removed on downgrade. Mirrors the ibis_status
+    round-trip test above so the migration is caught by CI even before
+    any ingest-side coverage lands.
+    """
+    import os
+
+    import asyncpg
+
+    _alembic("upgrade", "head")
+    dsn = os.environ.get(
+        "APP_DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/remote_monitor",
+    ).replace("postgresql+asyncpg", "postgresql")
+
+    pid = "00000000-0000-0000-0000-000000000010"
+    conn = await asyncpg.connect(dsn)
+    try:
+        # Insert a patient with a required bed_number so the active CHECK
+        # constraint is satisfied, then insert a measurement with hr_status.
+        await conn.execute(
+            "INSERT INTO clinical.patients (patient_id, is_active, bed_number) "
+            "VALUES ($1, true, 1)",
+            pid,
+        )
+        await conn.execute(
+            "INSERT INTO clinical.measurements "
+            "(id, patient_id, local_id, timestamp, received_at, hr_status) "
+            "VALUES ('00000000-0000-0000-0000-000000000012', $1, "
+            "'00000000-0000-0000-0000-000000000011', now(), now(), $2)",
+            pid,
+            -3,  # wearable detached
+        )
+        row = await conn.fetchrow(
+            "SELECT hr_status FROM clinical.measurements WHERE patient_id = $1",
+            pid,
+        )
+        assert row is not None
+        assert row["hr_status"] == -3
+    finally:
+        await conn.close()
+
+    _alembic("downgrade", "-1")
+    conn2 = await asyncpg.connect(dsn)
+    try:
+        cols = await conn2.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'clinical' AND table_name = 'measurements' "
+            "AND column_name = 'hr_status'"
         )
         assert cols == []
     finally:

@@ -68,3 +68,11 @@ class ClinicalMeasurement(Base):
     ibis_status: Mapped[list[int] | None] = mapped_column(
         ARRAY(Integer), nullable=True
     )
+    # feat-watch-hr-status-surface: per-reading lifecycle code from the
+    # Samsung `HEART_RATE_STATUS` field. Documented values (Samsung API
+    # Reference `ValueKey.HeartRateSet.html`): `1` = success, `0` = initial
+    # or BIA operating, `-2` = movement, `-3` = off-wrist, `-8` = weak PPG,
+    # `-10` = too weak, `-999` = BIA operating. NULL when the SDK did not
+    # provide a status for this batch. Stored as plain nullable Integer
+    # (no array, no range — the Pydantic layer enforces the value set).
+    hr_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
