@@ -9,24 +9,32 @@ dashboard evolucionen como hermanos: cambiá uno, aprendé del siguiente.
 El flujo completo es así:
 
 1. **Un operador coloca el reloj** (Galaxy Watch 4 con Wear OS 6) en la muñeca
-   del paciente y selecciona una cama (1 a 5) desde la app del reloj.
-2. **El reloj recolecta signos vitales** — frecuencia cardíaca (BPM) e intervalos entre latidos (IBI) — usando los sensores del
+   del paciente y selecciona una cama (1 a 5) desde el selector de la app
+   del reloj. El backend deriva el `patient_number` determinísticamente a
+   partir del `bed_number` (cifrado con `pgp_sym_encrypt`); el operador no
+   tipea ningún identificador.
+2. **El reloj recolecta signos vitales** — frecuencia cardíaca (BPM),
+   intervalos entre latidos (IBI), saturación de oxígeno (SpO2 %) y el código
+   de lifecycle del sensor Samsung (`hr_status`) — usando los sensores del
    Samsung Health Sensor SDK. Las mediciones se guardan localmente en Room
    (SQLite) y se suben en lotes al backend.
 3. **El backend recibe, valida y persiste** las mediciones en PostgreSQL, y
-   retransmite las actualizaciones en tiempo real por WebSocket a los frontends conectados.
-4. **El dashboard muestra el estado en vivo** de cada paciente sin necesidad de
-   refrescar la página: Estado de ocupación
-   de camas, y un tacograma (visualización de intervalos entre latidos).
+   retransmite las actualizaciones en tiempo real por WebSocket a los
+   frontends conectados (un canal por paciente en
+   `wss://{host}/ws/patients/{patient_id}`).
+4. **El dashboard muestra el estado en vivo** de cada paciente sin necesidad
+   de refrescar la página: grilla de ocupación de camas, tacograma (IBI vs.
+   tiempo), gráfico de frecuencias de HRV (VLF / LF / HF) y mapa de Poincaré
+   (IBI<sub>n</sub> vs. IBI<sub>n+1</sub>).
 
 ### Funcionalidades actuales
 
 | Componente | ¿Qué hace hoy? |
 |---|---|
-| **Reloj (Wear OS)** | Onboarding con selector de cama, registro de paciente contra el backend, recolección de BPM/IBI con Health Services y Samsung Health Sensor SDK, almacenamiento local en Room, subida por lotes con `delete-after-echo`, reintentos con backoff |
-| **Backend (FastAPI)** | Registro de pacientes por cama, recepción de lotes de mediciones con idempotencia (`local_id` UUID v4), paginación por cursor, snapshot de ocupación de camas, health/readiness checks, broadcast WebSocket en tiempo real, cifrado PII con `pgp_sym_encrypt`, separación de esquemas `pii` / `clinical` / `audit` |
-| **Frontend (TanStack)** | Dashboard en tiempo real con suscripción WebSocket, gráficos de IBIs, vista de ocupación de camas, modo oscuro, responsive |
-| **Contratos** | OpenAPI 3.1 (fuente de verdad REST), AsyncAPI (WebSocket), tipos TypeScript y Kotlin derivados |
+| **Reloj (Wear OS)** | Onboarding con selector de cama (1..5), registro atómico de paciente contra el backend, recolección de BPM / IBI / SpO2 / `hr_status` con Health Services y Samsung Health Sensor SDK, almacenamiento local en Room, subida por lotes con `delete-after-echo`, reintentos con backoff, sync en primer plano (`SyncForegroundService` + `OngoingActivity` para el watch-face) |
+| **Backend (FastAPI)** | Registro de pacientes por cama (con `replace_active_session` para reasignación atómica), recepción de lotes con idempotencia (`local_id` UUID v4), paginación keyset por cursor, snapshot de ocupación (1..5), health/readiness checks, WebSocket por paciente en `/ws/patients/{patient_id}`, cifrado PII con `pgp_sym_encrypt`, separación de esquemas `pii` / `clinical` / `audit` |
+| **Frontend (TanStack)** | Dashboard en tiempo real con `setQueryData` sobre la cache de TanStack Query (sin polling), vista de ocupación de camas, vista por paciente con tacograma + HRV (VLF/LF/HF) + Poincaré, design system "Iris Void" sobre Tailwind v4 (CSS-first), responsive |
+| **Contratos** | OpenAPI 3.1 (fuente de verdad REST), AsyncAPI 3.0 (WebSocket), `data-models.md` con JSON Schema / Pydantic v2 / TypeScript / Kotlin, tipos TypeScript hand-written para WebSocket |
 
 ## Arquitectura
 
@@ -55,11 +63,12 @@ pérdida de datos.
 
 | Capa | Tecnología | Versión |
 |---|---|---|
-| Reloj | Kotlin, Jetpack Compose para Wear OS | Wear OS 6 (API 36), AGP 9.x, JDK 21 |
-| Backend | FastAPI + SQLAlchemy (async) + Pydantic v2 | Python ≥ 3.12, < 3.13 |
-| Frontend | React 18 + TanStack Start + TanStack Query + Tailwind | TypeScript 5.5, Vite 6 |
+| Reloj | Kotlin, Jetpack Compose para Wear OS, Room (con KSP) | Wear OS 6 (API 36), AGP 9.2.1, Kotlin 2.3.0, JDK 21, Compose BOM 2024.09.00 |
+| Backend | FastAPI + SQLAlchemy 2.0 (async) + Pydantic v2 + asyncpg + Alembic | Python ≥ 3.12, < 3.13 |
+| Frontend | React 18 + TanStack Start + TanStack Router + TanStack Query + Recharts | TypeScript 5.5, Vite 7, Tailwind v4 (CSS-first, vía `@tailwindcss/vite`), Node 22+ (runtime de SSR) |
+| Package manager (frontend) | bun (lockfile único: `bun.lock`) | bun 1.x |
 | Base de datos | PostgreSQL | 18-alpine |
-| Mensajería | WebSocket (broadcast por paciente) | — |
+| Mensajería | WebSocket por paciente (`/ws/patients/{patient_id}`) | — |
 | Túnel (dev) | ngrok v3 | — |
 
 ## Dependencias
@@ -92,6 +101,12 @@ cp backend/.env.test.example backend/.env.test
 
 ## Cómo montar cada servicio
 
+> **Vía canónica para empezar de cero** (incluye wipe + migrate + smoke):
+> [`scripts/start-test-stack.sh`](scripts/start-test-stack.sh) (solo backend) o
+> [`scripts/start-test-e2e.sh`](scripts/start-test-e2e.sh) (también limpia
+> el reloj y automatiza el onboarding). Ambos leen `backend/.env.test` y
+> ejecutan las migraciones de Alembic.
+
 ### 1. Backend + PostgreSQL + Frontend
 
 El stack de servicios se levanta con Docker Compose:
@@ -99,6 +114,12 @@ El stack de servicios se levanta con Docker Compose:
 ```bash
 # Levantar todo (postgres + backend + frontend)
 make up
+```
+
+Si tocaste código del backend o del frontend y la imagen cacheada quedó vieja:
+
+```bash
+make rebuild    # docker compose build backend frontend + up -d + alembic upgrade head
 ```
 
 Esto deja los servicios expuestos en:
@@ -115,7 +136,7 @@ make down
 Si necesitás limpiar la base de datos y re-aplicar migraciones:
 
 ```bash
-make backend-db-clean
+make backend-db-clean    # DROP SCHEMA pii/clinical/audit + alembic upgrade head
 ```
 
 ### 2. Túnel ngrok (para pruebas con dispositivo real)
@@ -185,8 +206,12 @@ make watch-clean-all    # watch-clean + watch-grant
 ```bash
 make frontend-install    # bun install (primera vez o tras cambios en package.json)
 make frontend-dev        # bun run dev (servidor local en http://localhost:5173)
-make frontend-build      # verificación de build
-make frontend-typecheck  # tsc --noEmit
+make frontend-build      # bun run build (verificación de build)
+make frontend-typecheck  # bunx tsc --noEmit
+
+# Si preferís correr el frontend dentro de Docker (separado del backend):
+make frontend-up         # docker compose up -d --build frontend (contenedor en :3000)
+make frontend-logs       # docker compose logs -f frontend
 ```
 
 ## Flujo completo de demo
@@ -206,9 +231,12 @@ make demo-clean  # backend-db-clean + watch-clean-all + build-install-run
 ## Tests
 
 ```bash
-make test          # backend (pytest) + watch (gradle unit tests)
-make test-backend  # solo backend
-make test-watch    # solo watch
+make test             # backend (pytest) + watch (gradle unit tests)
+make test-backend     # solo backend
+make test-watch       # solo watch (./gradlew :app:testDebugUnitTest)
+
+# Frontend (vitest, opcional)
+cd frontend && bun run test
 ```
 
 ## Contratos
@@ -238,10 +266,14 @@ tuviera implementado ningún control de cumplimiento.
 
 ## Autenticación (PoC)
 
-No hay inicio de sesión en ninguna parte del sistema. El reloj se identifica con
-el número de paciente que el operador selecciona en el picker de cama. El
-dashboard se abre directamente a la vista en vivo. Esto es aceptable solo para
-una prueba de concepto.
+No hay inicio de sesión en ninguna parte del sistema. El operador selecciona
+una cama (1..5) desde el `BedGridView` del reloj; el backend deriva el
+`patient_number` determinísticamente a partir del `bed_number` y lo cifra con
+`pgp_sym_encrypt` antes de persistirlo en `pii.patients`. Para subir
+mediciones, el reloj envía un header `X-Patient-Number` que el backend compara
+contra el `patient_id` de la URL (403 si no coincide). El dashboard se abre
+directamente a la vista en vivo. Esto es aceptable solo para una prueba de
+concepto.
 
 ## Estructura del repositorio
 
