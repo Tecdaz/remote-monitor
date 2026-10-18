@@ -107,7 +107,7 @@ export function TachogramChart({
               onChange={(event) => setYMinText(event.target.value)}
               placeholder="auto"
               aria-label="Mínimo del eje Y en milisegundos"
-              className="w-20 rounded-md border border-clinical-border bg-clinical-panel px-2 py-1 text-xs text-clinical-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-clinical-accent"
+              className="w-28 rounded-md border border-clinical-border bg-clinical-panel px-2 py-1 text-sm text-clinical-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-clinical-accent"
             />
           </label>
           <label className="flex items-center gap-1 text-xs text-clinical-inkFaint">
@@ -119,7 +119,7 @@ export function TachogramChart({
               onChange={(event) => setYMaxText(event.target.value)}
               placeholder="auto"
               aria-label="Máximo del eje Y en milisegundos"
-              className="w-20 rounded-md border border-clinical-border bg-clinical-panel px-2 py-1 text-xs text-clinical-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-clinical-accent"
+              className="w-28 rounded-md border border-clinical-border bg-clinical-panel px-2 py-1 text-sm text-clinical-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-clinical-accent"
             />
           </label>
         </div>
