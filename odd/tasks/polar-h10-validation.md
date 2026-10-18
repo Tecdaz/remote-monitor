@@ -19,6 +19,7 @@ Objective: capturar BPM+RR de la Polar H10 en la app Wear por GATT estándar (si
 |----|-------|----|--------------------------|--------|--------|
 | T1 | Watch: `PolarHrsProvider` GATT (parse 0x2A37, Flow, timeout/null) + unit tests | S1,S2,S4 | inline (single unit ~120 líneas, sin razón Writer) | done (GREEN: PolarHrsParserTest 5/5 + suite :app:testDebugUnitTest green) | 975c1b8 |
 | T1b | SDK: spike Polar BLE SDK (HR+ACC streaming, JitPack, permisos) + decisión minSdk | S6 | innecesaria (una sola unidad; se cancela por L4) | cancelled (L4: sin SDK; ACC diferido) | — |
+| T8 | Frontend: filtro por dispositivo (Todos/Samsung/Polar) + dedupe de repetidas consecutivas Polar | S9 | inline (helper puro + hook + toggle, sin razón Writer) | done (RED 7 fallos → GREEN 7/7 + suite 44/44) | pending-commit |
 | T7 | Watch: link GATT Polar estable (neverForLocation, LOW_LATENCY+HRS, watchdog 30s, single-connect, logs) — `connectedDevice` revertido (crasheaba el FGS) | S8 | inline (fix + rebuild, sin razón Writer) | done (suite green + vivo: ~1 Hz, BPM+RR reales) | 141269c |
 | T6 | Watch: diálogo runtime de permisos BLE solo cuando hay banda configurada | S7 | inline (helper puro + wiring Activity, sin razón Writer) | done (RED unresolved → GREEN 2/2 + suite green; caché incremental limpiada) | pending-commit |
 | T2 | Watch: `source` en `MeasurementEntity` + migración 6_7 + `SensorOrchestrator` dual + permisos BLE + wiring | S1,S3,S5 | inline (single unit, superficies disjuntas pero secuencial) | done (RED unresolved refs → GREEN polar test 2/2 + suite green) | 28685ec |
@@ -41,4 +42,6 @@ Forecast: ~550 líneas autoradas (provider 120 + entity/migración/orquestador 1
 - L5 (2026-10-18): "pon para que la app muestre el dialogo de permisos en runtime"
 - S8 (2026-10-18): "A" — método elegido: GATT directo desde el reloj (investigación previa: Samsung Health no usa la banda pero el OS sí permite BLE; doc oficial exige FGS `connectedDevice` para BLE en background)
 - L6 (2026-10-18): T7 en curso en rama `feat-polar-h10-validation`.
+- S9 (2026-10-18): "quiero que el grafico permita filtrar enntre dispositivo de medicion y el filtrado de la banda elimine mediciones repetidas consecutivas"
+- L8 (2026-10-18): T8 display-layer solo frontend; dedupe = duplicados exactos consecutivos (timestamp+BPM+IBI), BPM estable con timestamps distintos se preserva.
 - L7 (2026-10-18): validación VIVA — 47 filas nulas iniciales → causa raíz en cadena: (1) APK sin deviceId, (2) key de cifrado backend, (3) ubicación apagada suprimía scans, (4) FGS `health|connectedDevice` crasheaba (revertido), (5) grants de salud borrados por reinstall (re-otorgados), (6) teléfono ocupaba la banda. Fix: watchdog + single-connect + neverForLocation + LOW_LATENCY. Polar ~1 Hz BPM+RR + Samsung en paralelo.

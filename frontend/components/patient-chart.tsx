@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ConnectionPill } from './charts/connection-pill'
+import { DeviceToggle } from './charts/device-toggle'
 import { ModeToggle } from './charts/mode-toggle'
 import {
   PatientHeader,
@@ -26,6 +27,8 @@ export function ChartView({ patientId }: { patientId: string }) {
     isLoading,
     mode,
     setMode,
+    device,
+    setDevice,
     hasStatusData,
     effectiveMode,
   } = usePatientChart(patientId)
@@ -75,6 +78,7 @@ export function ChartView({ patientId }: { patientId: string }) {
           onChange={setMode}
           disabled={!hasStatusData}
         />
+        <DeviceToggle device={device} onChange={setDevice} />
       </div>
 
       {isLoading && measurements.length === 0 ? (

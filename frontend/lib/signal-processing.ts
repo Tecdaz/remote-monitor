@@ -38,6 +38,55 @@ export interface TachogramPoint {
 
 export type BeatMode = 'filtered' | 'raw'
 
+/** Measurement-source filter for the charts (polar-h10-validation T8). */
+export type DeviceFilter = 'all' | 'samsung_watch' | 'polar_h10'
+
+/**
+ * Keep only rows from the selected measurement device.
+ * `'all'` returns the input untouched (default view, no behavior change).
+ */
+export function filterByDevice(
+  measurements: Measurement[],
+  device: DeviceFilter,
+): Measurement[] {
+  if (device === 'all') return measurements
+  return measurements.filter((m) => m.source === device)
+}
+
+/**
+ * Drop transport-level duplicates in the Polar stream: consecutive (by
+ * timestamp) `polar_h10` rows with identical timestamp, BPM, IBI array
+ * and lifecycle status collapse to the first one.
+ *
+ * Steady resting BPM with advancing timestamps is physiology, not noise,
+ * and is preserved. Samsung rows are never touched.
+ */
+export function dedupeConsecutivePolarReadings(
+  measurements: Measurement[],
+): Measurement[] {
+  const sorted = [...measurements].sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp),
+  )
+  const out: Measurement[] = []
+  for (const m of sorted) {
+    const prev = out[out.length - 1]
+    if (
+      prev !== undefined &&
+      m.source === 'polar_h10' &&
+      prev.source === 'polar_h10' &&
+      m.timestamp === prev.timestamp &&
+      m.heart_rate_bpm === prev.heart_rate_bpm &&
+      m.hr_status === prev.hr_status &&
+      JSON.stringify(m.ibis_ms) === JSON.stringify(prev.ibis_ms) &&
+      JSON.stringify(m.ibis_status) === JSON.stringify(prev.ibis_status)
+    ) {
+      continue
+    }
+    out.push(m)
+  }
+  return out
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
