@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computePoincare,
   computePSD,
+  resolveTachogramYDomain,
   selectBeatsForChart,
 } from './signal-processing'
 import type { Measurement } from './types'
@@ -187,5 +188,27 @@ describe('computePSD', () => {
 
     const filtered = computePSD([measurement], 'filtered')
     expect(filtered).toEqual([])
+  })
+})
+
+describe('resolveTachogramYDomain', () => {
+  it('auto on both sides when unset', () => {
+    expect(resolveTachogramYDomain(null, null)).toEqual(['auto', 'auto'])
+  })
+
+  it('applies each bound independently', () => {
+    expect(resolveTachogramYDomain(400, null)).toEqual([400, 'auto'])
+    expect(resolveTachogramYDomain(null, 1200)).toEqual(['auto', 1200])
+    expect(resolveTachogramYDomain(400, 1200)).toEqual([400, 1200])
+  })
+
+  it('falls back to auto when min is not below max', () => {
+    expect(resolveTachogramYDomain(1200, 400)).toEqual(['auto', 'auto'])
+    expect(resolveTachogramYDomain(800, 800)).toEqual(['auto', 'auto'])
+  })
+
+  it('rejects non-finite bounds', () => {
+    expect(resolveTachogramYDomain(NaN, 1200)).toEqual(['auto', 1200])
+    expect(resolveTachogramYDomain(400, Infinity)).toEqual([400, 'auto'])
   })
 })

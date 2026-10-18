@@ -38,6 +38,26 @@ export interface TachogramPoint {
 
 export type BeatMode = 'filtered' | 'raw'
 
+/** Y-axis bound for the tachogram: a finite number or 'auto'. */
+export type TachogramYBound = number | 'auto'
+
+/**
+ * Resolve the tachogram Y-axis domain from the operator's optional
+ * min/max inputs (polar-h10-validation T10). Each side falls back to
+ * `'auto'` when unset or non-finite; when both are set but min is not
+ * below max the whole domain falls back to auto so Recharts never
+ * renders an empty/inverted axis.
+ */
+export function resolveTachogramYDomain(
+  yMin: number | null,
+  yMax: number | null,
+): [TachogramYBound, TachogramYBound] {
+  const lo = yMin !== null && Number.isFinite(yMin) ? yMin : null
+  const hi = yMax !== null && Number.isFinite(yMax) ? yMax : null
+  if (lo !== null && hi !== null && lo >= hi) return ['auto', 'auto']
+  return [lo ?? 'auto', hi ?? 'auto']
+}
+
 /** Measurement-source filter for the charts (polar-h10-validation T8). */
 export type DeviceFilter = 'all' | 'samsung_watch' | 'polar_h10'
 

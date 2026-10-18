@@ -19,6 +19,7 @@ Objective: capturar BPM+RR de la Polar H10 en la app Wear por GATT estándar (si
 |----|-------|----|--------------------------|--------|--------|
 | T1 | Watch: `PolarHrsProvider` GATT (parse 0x2A37, Flow, timeout/null) + unit tests | S1,S2,S4 | inline (single unit ~120 líneas, sin razón Writer) | done (GREEN: PolarHrsParserTest 5/5 + suite :app:testDebugUnitTest green) | 975c1b8 |
 | T1b | SDK: spike Polar BLE SDK (HR+ACC streaming, JitPack, permisos) + decisión minSdk | S6 | innecesaria (una sola unidad; se cancela por L4) | cancelled (L4: sin SDK; ACC diferido) | — |
+| T10 | Frontend: mínimo/máximo ajustable del eje Y del tacograma | S11 | inline (resolver puro + inputs, sin razón Writer) | done (RED 4 fallos → GREEN 4/4 + suite 52/52) | pending-commit |
 | T9 | Frontend: colapsar IBIs polares idénticos consecutivos en selectIBISeries (cubre los 3 gráficos) | S10 | inline (selector puro + tests, sin razón Writer) | done (RED 2 fallos → GREEN 4/4 + suite 48/48) | 8361310 |
 | T8 | Frontend: filtro por dispositivo (Todos/Samsung/Polar) + dedupe de repetidas consecutivas Polar | S9 | inline (helper puro + hook + toggle, sin razón Writer) | done (RED 7 fallos → GREEN 7/7 + suite 44/44) | 557f76b |
 | T7 | Watch: link GATT Polar estable (neverForLocation, LOW_LATENCY+HRS, watchdog 30s, single-connect, logs) — `connectedDevice` revertido (crasheaba el FGS) | S8 | inline (fix + rebuild, sin razón Writer) | done (suite green + vivo: ~1 Hz, BPM+RR reales) | 141269c |
@@ -43,6 +44,7 @@ Forecast: ~550 líneas autoradas (provider 120 + entity/migración/orquestador 1
 - L5 (2026-10-18): "pon para que la app muestre el dialogo de permisos en runtime"
 - S8 (2026-10-18): "A" — método elegido: GATT directo desde el reloj (investigación previa: Samsung Health no usa la banda pero el OS sí permite BLE; doc oficial exige FGS `connectedDevice` para BLE en background)
 - L6 (2026-10-18): T7 en curso en rama `feat-polar-h10-validation`.
+- S11 (2026-10-18): "Permite ajustar el minimo y el maximo del eje y del tachograma"
 - S10 (2026-10-18): "Me refiero a los ibis, el bpm esta bien que sea estable" — colapsar IBIs polares idénticos consecutivos; BPM estable y Samsung intactos.
 - S9 (2026-10-18): "quiero que el grafico permita filtrar enntre dispositivo de medicion y el filtrado de la banda elimine mediciones repetidas consecutivas"
 - L8 (2026-10-18): T8 display-layer solo frontend; dedupe = duplicados exactos consecutivos (timestamp+BPM+IBI), BPM estable con timestamps distintos se preserva.
