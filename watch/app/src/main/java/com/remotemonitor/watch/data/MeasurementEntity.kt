@@ -38,6 +38,11 @@ import com.squareup.moshi.Json
  * `-10` = too weak, `-999` = BIA operating. `null` when the SDK did
  * not provide a status for this batch (e.g. the first sample after
  * wakeup). Added in the `feat-watch-hr-status-surface` cycle.
+ *
+ * **`source`**: per-row discriminator for validation
+ * (`polar-h10-validation` T2). `samsung_watch` = Samsung SDK pipeline,
+ * `polar_h10` = Polar H10 GATT pipeline. Non-null with a Samsung
+ * default so pre-T2 rows backfill cleanly via `MIGRATION_6_7`.
  */
 @Entity(
     tableName = "measurements",
@@ -68,4 +73,12 @@ data class MeasurementEntity(
     @ColumnInfo(name = "hr_status")
     @Json(name = "hr_status")
     val hrStatus: Int? = null,
-)
+    @ColumnInfo(name = "source")
+    @Json(name = "source")
+    val source: String = SOURCE_SAMSUNG,
+) {
+    companion object {
+        const val SOURCE_SAMSUNG = "samsung_watch"
+        const val SOURCE_POLAR = "polar_h10"
+    }
+}

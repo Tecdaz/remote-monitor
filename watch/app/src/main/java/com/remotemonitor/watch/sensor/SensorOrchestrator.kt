@@ -55,6 +55,7 @@ class SensorOrchestrator(
     private val dao: MeasurementDao,
     private val clock: () -> Long = System::currentTimeMillis,
     private val offWristTimeoutMs: Long = DEFAULT_OFF_WRIST_TIMEOUT_MS,
+    private val polarSensor: HeartRateSensor? = null,
 ) {
     private var job: Job? = null
 
@@ -78,35 +79,62 @@ class SensorOrchestrator(
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return
         job = scope.launch {
-            while (isActive) {
-                // Track the last BPM timestamp per-collection attempt
-                // so off-wrist detection resets on each reconnect.
-                var lastBpmAt = clock()
-                val result = runCatching {
-                    heartRateSensor.readings
-                        .onEach { bpmReading ->
-                            val now = clock()
-                            val bpm = bpmReading?.beatsPerMinute
-                            // REQ-WATCH-BG-02: the Samsung SDK may emit
-                            // BPM=0 during sensor recovery. A BPM of 0
-                            // is physiologically invalid and would be
-                            // rejected by the backend. Skip this reading
-                            // entirely — don't write it to Room, don't
-                            // reset the off-wrist timer.
-                            if (bpm != null && bpm <= 0) return@onEach
-                            if (bpm != null) {
-                                // A fresh reading means the pipeline is alive
-                                // and on-wrist again.
-                                lastBpmAt = now
-                                _healthState.value = SensorHealth.Healthy
-                            } else if (now - lastBpmAt >= offWristTimeoutMs) {
-                                // Sustained null readings = off-wrist (D6). We
-                                // do NOT overwrite a Failed state here; only a
-                                // successful reading clears Failed.
-                                if (_healthState.value != SensorHealth.Failed) {
-                                    _healthState.value = SensorHealth.OffWrist
-                                }
+            // T2 polar-h10-validation: Samsung stays the primary pipeline
+            // (owns healthState); the Polar strap collects concurrently as
+            // an independent validation source. Both retry independently.
+            val samsungJob = launch {
+                runRetryLoop(heartRateSensor, MeasurementEntity.SOURCE_SAMSUNG, updateHealth = true)
+            }
+            val polarJob = polarSensor?.let { polar ->
+                launch {
+                    runRetryLoop(polar, MeasurementEntity.SOURCE_POLAR, updateHealth = false)
+                }
+            }
+            samsungJob.join()
+            polarJob?.join()
+        }
+    }
+
+    /**
+     * T2: shared collect+retry loop for one sensor source. Extracted
+     * verbatim from the former Samsung-only `start` body; the only
+     * additions are the [source] tag on each row and the [updateHealth]
+     * gate (only Samsung drives `healthState`/off-wrist).
+     */
+    private suspend fun CoroutineScope.runRetryLoop(
+        sensor: HeartRateSensor,
+        source: String,
+        updateHealth: Boolean,
+    ) {
+        while (isActive) {
+            // Track the last BPM timestamp per-collection attempt
+            // so off-wrist detection resets on each reconnect.
+            var lastBpmAt = clock()
+            val result = runCatching {
+                sensor.readings
+                    .onEach { bpmReading ->
+                        val now = clock()
+                        val bpm = bpmReading?.beatsPerMinute
+                        // REQ-WATCH-BG-02: the Samsung SDK may emit
+                        // BPM=0 during sensor recovery. A BPM of 0
+                        // is physiologically invalid and would be
+                        // rejected by the backend. Skip this reading
+                        // entirely — don't write it to Room, don't
+                        // reset the off-wrist timer.
+                        if (bpm != null && bpm <= 0) return@onEach
+                        if (bpm != null) {
+                            // A fresh reading means the pipeline is alive
+                            // and on-wrist again.
+                            lastBpmAt = now
+                            if (updateHealth) _healthState.value = SensorHealth.Healthy
+                        } else if (updateHealth && now - lastBpmAt >= offWristTimeoutMs) {
+                            // Sustained null readings = off-wrist (D6). We
+                            // do NOT overwrite a Failed state here; only a
+                            // successful reading clears Failed.
+                            if (_healthState.value != SensorHealth.Failed) {
+                                _healthState.value = SensorHealth.OffWrist
                             }
+                        }
                             // REQ-NOISE-WATCH-01: preserve the raw IBI array
                             // and the matching quality flags. Filtering by
                             // status now happens on the backend / frontend so
@@ -132,6 +160,7 @@ class SensorOrchestrator(
                                 ibisMs = ibis,
                                 ibisStatus = ibisStatus,
                                 hrStatus = hrStatus,
+                                source = source,
                             )
                             dao.insert(row)
                         }
@@ -139,13 +168,14 @@ class SensorOrchestrator(
                 }
                 val cause = result.exceptionOrNull()
                 when {
-                    cause is CancellationException -> return@launch
+                    cause is CancellationException -> return
                     cause != null -> {
                         // REQ-WATCH-BG-01: sensor collection threw
-                        // (non-cancellation). Flip health to Failed,
-                        // then retry after delay.
+                        // (non-cancellation). Only the Samsung pipeline
+                        // owns healthState; a Polar failure stays local
+                        // to its retry loop.
                         Log.w(TAG, "Sensor flow threw; retrying in ${RETRY_DELAY_MS}ms", cause)
-                        _healthState.value = SensorHealth.Failed
+                        if (updateHealth) _healthState.value = SensorHealth.Failed
                     }
                     else -> {
                         // REQ-WATCH-BG-01: flow completed normally
@@ -158,13 +188,10 @@ class SensorOrchestrator(
                 if (isActive) {
                     delay(RETRY_DELAY_MS)
                 }
-            }
         }
     }
 
-    /**
-     * Stop collecting. Safe to call when not running.
-     */
+    /** Stop collecting. Safe to call when not running. */
     fun stop() {
         job?.cancel()
         job = null

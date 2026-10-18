@@ -17,6 +17,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * - Version 6 — added `hr_status` INTEGER NULL column for the Samsung
  *   `HEART_RATE_STATUS` per-reading lifecycle code (feat-watch-hr-status-
  *   surface). Real [MIGRATION_5_6] preserves pending rows.
+ * - Version 7 — added `source` TEXT NOT NULL DEFAULT 'samsung_watch'
+ *   discriminator (polar-h10-validation T2). Real [MIGRATION_6_7]
+ *   backfills pre-T2 rows as Samsung.
  * - Schema is exported to `app/schemas/` by the Room compiler
  *   (KSP arg `room.schemaLocation` in `app/build.gradle.kts`).
  *
@@ -30,7 +33,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [MeasurementEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -58,6 +61,17 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE measurements ADD COLUMN hr_status INTEGER")
+            }
+        }
+
+        /**
+         * polar-h10-validation T2: explicit migration from v6 to v7
+         * adds the `source` TEXT discriminator. NOT NULL with a
+         * Samsung default so pending pre-T2 rows backfill cleanly.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE measurements ADD COLUMN source TEXT NOT NULL DEFAULT 'samsung_watch'")
             }
         }
     }

@@ -11,6 +11,7 @@ import com.remotemonitor.watch.identity.DeviceInfoProviderImpl
 import com.remotemonitor.watch.identity.IdentityRepository
 import com.remotemonitor.watch.identity.IdentityRepositoryImpl
 import com.remotemonitor.watch.sensor.HeartRateSensor
+import com.remotemonitor.watch.sensor.PolarHrsProvider
 import com.remotemonitor.watch.sensor.SamsungHeartRateProvider
 import com.remotemonitor.watch.sensor.SamsungSpO2Provider
 import com.remotemonitor.watch.sensor.SensorOrchestrator
@@ -86,11 +87,21 @@ class WatchApplication : Application() {
     // out-of-scope marker — removal is a follow-up cycle).
     val heartRateSensor: HeartRateSensor by lazy { SamsungHeartRateProvider(this) }
 
+    // T2 polar-h10-validation: optional Polar H10 GATT provider.
+    // Empty POLAR_DEVICE_ID (default) = Polar disabled, Samsung-only.
+    // Set per validation run with -PpolarDeviceId=H10_XXXX.
+    val polarHeartRateSensor: HeartRateSensor? by lazy {
+        BuildConfig.POLAR_DEVICE_ID.takeIf { it.isNotEmpty() }?.let {
+            PolarHrsProvider(this, it)
+        }
+    }
+
     val sensorOrchestrator: SensorOrchestrator by lazy {
         SensorOrchestrator(
             heartRateSensor = heartRateSensor,
             spO2Provider = spO2Provider,
             dao = measurementDao,
+            polarSensor = polarHeartRateSensor,
         )
     }
 
@@ -115,6 +126,9 @@ class WatchApplication : Application() {
             // feat-watch-hr-status-surface: real migration preserves pending
             // rows when adding `hr_status`. Same rationale as 4_5.
             .addMigrations(AppDatabase.MIGRATION_5_6)
+            // T2 polar-h10-validation: real migration preserves pending
+            // rows when adding the `source` discriminator.
+            .addMigrations(AppDatabase.MIGRATION_6_7)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }

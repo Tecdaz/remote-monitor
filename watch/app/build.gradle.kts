@@ -35,6 +35,12 @@ android {
             val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?)
                 ?: "http://10.0.2.2:8000/"
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+            // T2 polar-h10-validation: Polar H10 device-id filter for the
+            // GATT provider. Empty = Polar disabled (Samsung-only).
+            // Override per validation run:
+            //   ./gradlew :app:assembleDebug -PpolarDeviceId=H10_ABC123
+            val polarDeviceId = (project.findProperty("polarDeviceId") as String?) ?: ""
+            buildConfigField("String", "POLAR_DEVICE_ID", "\"$polarDeviceId\"")
         }
         release {
             isMinifyEnabled = false
@@ -44,6 +50,8 @@ android {
             val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?)
                 ?: "https://api.example.com/"
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+            val polarDeviceId = (project.findProperty("polarDeviceId") as String?) ?: ""
+            buildConfigField("String", "POLAR_DEVICE_ID", "\"$polarDeviceId\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
