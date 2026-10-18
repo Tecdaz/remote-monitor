@@ -19,7 +19,7 @@ Objective: capturar BPM+RR de la Polar H10 en la app Wear por GATT estándar (si
 |----|-------|----|--------------------------|--------|--------|
 | T1 | Watch: `PolarHrsProvider` GATT (parse 0x2A37, Flow, timeout/null) + unit tests | S1,S2,S4 | inline (single unit ~120 líneas, sin razón Writer) | done (GREEN: PolarHrsParserTest 5/5 + suite :app:testDebugUnitTest green) | 975c1b8 |
 | T1b | SDK: spike Polar BLE SDK (HR+ACC streaming, JitPack, permisos) + decisión minSdk | S6 | innecesaria (una sola unidad; se cancela por L4) | cancelled (L4: sin SDK; ACC diferido) | — |
-| T9 | Frontend: colapsar IBIs polares idénticos consecutivos en selectIBISeries (cubre los 3 gráficos) | S10 | inline (selector puro + tests, sin razón Writer) | done (RED 2 fallos → GREEN 4/4 + suite 48/48) | pending-commit |
+| T9 | Frontend: colapsar IBIs polares idénticos consecutivos en selectIBISeries (cubre los 3 gráficos) | S10 | inline (selector puro + tests, sin razón Writer) | done (RED 2 fallos → GREEN 4/4 + suite 48/48) | 8361310 |
 | T8 | Frontend: filtro por dispositivo (Todos/Samsung/Polar) + dedupe de repetidas consecutivas Polar | S9 | inline (helper puro + hook + toggle, sin razón Writer) | done (RED 7 fallos → GREEN 7/7 + suite 44/44) | 557f76b |
 | T7 | Watch: link GATT Polar estable (neverForLocation, LOW_LATENCY+HRS, watchdog 30s, single-connect, logs) — `connectedDevice` revertido (crasheaba el FGS) | S8 | inline (fix + rebuild, sin razón Writer) | done (suite green + vivo: ~1 Hz, BPM+RR reales) | 141269c |
 | T6 | Watch: diálogo runtime de permisos BLE solo cuando hay banda configurada | S7 | inline (helper puro + wiring Activity, sin razón Writer) | done (RED unresolved → GREEN 2/2 + suite green; caché incremental limpiada) | pending-commit |
