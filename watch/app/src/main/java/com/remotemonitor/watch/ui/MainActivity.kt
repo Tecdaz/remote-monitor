@@ -69,7 +69,9 @@ class MainActivity : ComponentActivity() {
         // permissions only when a Polar strap is configured
         // (`-PpolarDeviceId`). Samsung-only builds (the default) see
         // zero behavior change — no dialog is ever shown.
-        if (BuildConfig.POLAR_DEVICE_ID.isNotEmpty()) {
+        val polarConfigured = BuildConfig.POLAR_DEVICE_ID.isNotEmpty()
+        Log.i(TAG, "polar strap configured: $polarConfigured")
+        if (polarConfigured) {
             val missing = PolarPermissions.missingBlePermissions(this)
             if (missing.isNotEmpty()) {
                 Log.i(TAG, "requesting ble permissions: $missing")

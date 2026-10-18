@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Health Services: heart rate (BPM) collection. SpO2 uses Samsung SDK. -->
     <uses-permission android:name="android.permission.BODY_SENSORS" />
@@ -13,8 +14,15 @@
 
     <!-- T2 polar-h10-validation: BLE GATT for the Polar H10 strap
          (standard HRS 0x180D, no SDK). SCAN+CONNECT on API 31+;
-         FINE_LOCATION is the API-30 scan gate (fleet SM-R870). -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+         FINE_LOCATION is the API-30 scan gate (fleet SM-R870).
+         neverForLocation: we filter by the configured device ID only
+         and never derive physical location, so scans return results
+         even with the watch Location toggle off (its off state was
+         silently suppressing every scan result). -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission
         android:name="android.permission.ACCESS_FINE_LOCATION"

@@ -38,3 +38,6 @@ Forecast: ~550 líneas autoradas (provider 120 + entity/migración/orquestador 1
 - Decisión: colector = el propio watch (mismo reloj, mismo `POST /measurements`, misma sesión) para evitar sincronía NTP entre dispositivos.
 - Cierre (2026-10-18): T1-T5 done en rama `feat-polar-h10-validation` (975c1b8, 28685ec, b307f63, 59233f7). Backend 120 passed, watch suite green, vitest 14/14. Falta: push + PR (decisión del operador) y validación con banda real (`-PpolarDeviceId`).
 - L5 (2026-10-18): "pon para que la app muestre el dialogo de permisos en runtime"
+- S8 (2026-10-18): "A" — método elegido: GATT directo desde el reloj (investigación previa: Samsung Health no usa la banda pero el OS sí permite BLE; doc oficial exige FGS `connectedDevice` para BLE en background)
+- L6 (2026-10-18): T7 en curso en rama `feat-polar-h10-validation`.
+- L7 (2026-10-18): validación VIVA — 47 filas nulas iniciales → causa raíz en cadena: (1) APK sin deviceId, (2) key de cifrado backend, (3) ubicación apagada suprimía scans, (4) FGS `health|connectedDevice` crasheaba (revertido), (5) grants de salud borrados por reinstall (re-otorgados), (6) teléfono ocupaba la banda. Fix: watchdog + single-connect + neverForLocation + LOW_LATENCY. Polar ~1 Hz BPM+RR + Samsung en paralelo.
