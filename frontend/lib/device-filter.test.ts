@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   dedupeConsecutivePolarReadings,
   filterByDevice,
+  selectIBISeries,
 } from './signal-processing'
 import type { Measurement } from './types'
 
@@ -80,6 +81,46 @@ describe('dedupeConsecutivePolarReadings', () => {
     const b = makeMeasurement(10_000, { source: 'samsung_watch' })
     expect(dedupeConsecutivePolarReadings([a, b])).toHaveLength(2)
   })
+
+describe('polar IBI beat dedupe in selectIBISeries', () => {
+  function polarBeat(timestampMs: number, ibi: number): Measurement {
+    return makeMeasurement(timestampMs, {
+      source: 'polar_h10',
+      heart_rate_bpm: 78,
+      ibis_ms: [ibi],
+      ibis_status: null,
+      hr_status: null,
+    })
+  }
+
+  it('collapses consecutive identical polar IBIs to one beat', () => {
+    const out = selectIBISeries(
+      [polarBeat(10_000, 770), polarBeat(11_000, 770), polarBeat(12_000, 770)],
+      'raw',
+    )
+    expect(out.ibis).toEqual([770])
+  })
+
+  it('keeps alternating polar IBIs', () => {
+    const out = selectIBISeries(
+      [polarBeat(10_000, 770), polarBeat(11_000, 791), polarBeat(12_000, 770)],
+      'raw',
+    )
+    expect(out.ibis).toEqual([770, 791, 770])
+  })
+
+  it('never touches samsung beats', () => {
+    const a = makeMeasurement(10_000, { ibis_ms: [800] })
+    const b = makeMeasurement(11_000, { ibis_ms: [800] })
+    expect(selectIBISeries([a, b], 'raw').ibis).toEqual([800, 800])
+  })
+
+  it('a polar beat identical to the preceding beat is dropped', () => {
+    const samsung = makeMeasurement(10_000, { ibis_ms: [800] })
+    const polar = polarBeat(11_000, 800)
+    expect(selectIBISeries([samsung, polar], 'raw').ibis).toEqual([800])
+  })
+})
 
   it('dedupe is order-independent: sorts by timestamp first', () => {
     const first = makeMeasurement(10_000, {

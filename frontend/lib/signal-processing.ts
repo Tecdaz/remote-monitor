@@ -154,6 +154,12 @@ export function selectIBISeries(
 
   const times: number[] = []
   const ibis: number[] = []
+  // T9: the H10 repeats its last RR intervals across notifications, so
+  // the polar series piles up identical consecutive beats (chart noise).
+  // Collapse a polar beat that equals the previously emitted one.
+  // Samsung is untouched; steady BPM with advancing timestamps is
+  // preserved because only *identical consecutive IBI values* collapse.
+  let lastEmittedIbi: number | null = null
 
   for (const m of sorted) {
     const ibisMs = m.ibis_ms
@@ -189,6 +195,8 @@ export function selectIBISeries(
       if (filtering) {
         if (status[i] !== 0 || localIbis[i] === 0) continue
       }
+      if (m.source === 'polar_h10' && localIbis[i] === lastEmittedIbi) continue
+      lastEmittedIbi = localIbis[i]
       times.push(localTimes[i])
       ibis.push(localIbis[i])
     }
