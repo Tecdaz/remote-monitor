@@ -33,6 +33,8 @@ export interface Measurement {
   spo2_percent: number | null
   ibis_ms: number[] | null
   ibis_status: number[] | null
+  hr_status: number | null
+  source: 'samsung_watch' | 'polar_h10'
 }
 
 export interface MeasurementPage {

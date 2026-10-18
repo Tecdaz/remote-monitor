@@ -214,6 +214,8 @@ async def list_measurements(
             # feat-watch-hr-status-surface: include the per-reading
             # Samsung lifecycle code in the list response.
             hr_status=row.hr_status,
+            # polar-h10-validation: per-row source discriminator.
+            source=row.source,
         )
         for row in page
     ]
@@ -268,4 +270,6 @@ async def get_measurement(
         # feat-watch-hr-status-surface: include the per-reading Samsung
         # lifecycle code in the single-measurement response.
         hr_status=row.hr_status,
+        # polar-h10-validation: per-row source discriminator.
+        source=row.source,
     )

@@ -25,6 +25,11 @@ export interface Measurement {
    * -8 = weak PPG; -10 = too weak; -999 = BIA operating; null when not provided.
    */
   hr_status: number | null;
+  /**
+   * Measurement source (polar-h10-validation).
+   * 'samsung_watch' = Samsung SDK pipeline; 'polar_h10' = Polar H10 strap.
+   */
+  source: 'samsung_watch' | 'polar_h10';
   received_at: string;
 }
 

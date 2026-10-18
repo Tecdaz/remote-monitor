@@ -11,7 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -76,3 +76,12 @@ class ClinicalMeasurement(Base):
     # provide a status for this batch. Stored as plain nullable Integer
     # (no array, no range — the Pydantic layer enforces the value set).
     hr_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # polar-h10-validation: per-row source discriminator. Non-null with
+    # a Samsung server default so pre-T3 rows backfill cleanly; the
+    # Pydantic layer enforces the closed value set.
+    source: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="samsung_watch",
+        server_default="samsung_watch",
+    )

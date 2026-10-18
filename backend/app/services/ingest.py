@@ -258,6 +258,9 @@ async def upload_measurements(
                             # feat-watch-hr-status-surface: per-reading
                             # Samsung lifecycle code (or None).
                             "hr_status": item.hr_status,
+                            # polar-h10-validation: per-row source
+                            # discriminator (defaults to Samsung).
+                            "source": item.source,
                         }
                         for i, item in enumerate(valid_items)
                     ]
@@ -332,6 +335,9 @@ async def upload_measurements(
                 # lifecycle code in the WS payload so live clients see
                 # the off-wrist / BIA / success signal immediately.
                 "hr_status": item.hr_status,
+                # polar-h10-validation: source discriminator so live
+                # clients can split validation streams.
+                "source": item.source,
             }
             try:
                 await manager.publish(

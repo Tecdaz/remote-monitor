@@ -252,6 +252,11 @@ components:
           enum: [-999, -10, -8, -3, -2, 0, 1, null]
           default: null
           description: "Samsung HEART_RATE_STATUS per-reading lifecycle code (feat-watch-hr-status-surface). Documented in the Samsung API Reference at `ValueKey.HeartRateSet.html`. Valid values: `1` = successful HR measurement, `0` = initial state OR a higher-priority sensor (e.g. BIA) operating, `-2` = wearable movement detected, `-3` = wearable detached (off-wrist), `-8` = PPG signal weak / user moved, `-10` = PPG signal too weak / too much motion, `-999` = a higher-priority sensor (e.g. BIA) operating. `null` when the SDK did not provide a status for this batch."
+        source:
+          type: string
+          enum: [samsung_watch, polar_h10]
+          default: samsung_watch
+          description: "Measurement source (polar-h10-validation). `samsung_watch` = Samsung Health Sensor SDK pipeline, `polar_h10` = Polar H10 chest strap via BLE GATT. Old clients omit it and ingest as `samsung_watch`."
     Measurement:
       allOf:
         - $ref: "#/components/schemas/MeasurementBatch"

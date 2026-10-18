@@ -42,7 +42,7 @@ export interface Patient { patient_id: string; patient_number: string; device_mo
 # openapi.yaml#/components/schemas/Measurement (allOf: MeasurementBatch + server-assigned fields)
 type: object
 required: [id, patient_id, local_id, timestamp, received_at]
-properties: { id: {type: string, format: uuid}, patient_id: {type: string, format: uuid}, local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, received_at: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}}, hr_status: {type: [integer, "null"], enum: [-999, -10, -8, -3, -2, 0, 1, null]} }
+properties: { id: {type: string, format: uuid}, patient_id: {type: string, format: uuid}, local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, received_at: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}}, hr_status: {type: [integer, "null"], enum: [-999, -10, -8, -3, -2, 0, 1, null]}, source: {type: string, enum: [samsung_watch, polar_h10]} }
 ```
 ```python
 class Measurement(BaseModel):
@@ -54,12 +54,14 @@ class Measurement(BaseModel):
     # Samsung HEART_RATE_STATUS per-reading lifecycle code (feat-watch-hr-status-surface).
     # Valid: {1, 0, -2, -3, -8, -10, -999}; null when the SDK did not provide one.
     hr_status: int | None = Field(None, description="Samsung HEART_RATE_STATUS per-reading lifecycle code.")
+    # Measurement source (polar-h10-validation): samsung_watch | polar_h10.
+    source: str = "samsung_watch"
 ```
 ```typescript
-export interface Measurement { id: string; patient_id: string; local_id: string; timestamp: string; received_at: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; hr_status: number | null; }
+export interface Measurement { id: string; patient_id: string; local_id: string; timestamp: string; received_at: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; hr_status: number | null; source: 'samsung_watch' | 'polar_h10'; }
 ```
 ```kotlin
-@Serializable data class Measurement(val id: UUID, val patientId: UUID, val localId: UUID, val timestamp: Instant, val receivedAt: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null, val hrStatus: Int? = null)
+@Serializable data class Measurement(val id: UUID, val patientId: UUID, val localId: UUID, val timestamp: Instant, val receivedAt: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null, val hrStatus: Int? = null, val source: String = "samsung_watch")
 ```
 
 ## MeasurementBatch
@@ -67,7 +69,7 @@ export interface Measurement { id: string; patient_id: string; local_id: string;
 # openapi.yaml#/components/schemas/MeasurementBatch
 type: object
 required: [local_id, timestamp]
-properties: { local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}}, hr_status: {type: [integer, "null"], enum: [-999, -10, -8, -3, -2, 0, 1, null]} }
+properties: { local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}}, hr_status: {type: [integer, "null"], enum: [-999, -10, -8, -3, -2, 0, 1, null]}, source: {type: string, enum: [samsung_watch, polar_h10]} }
 ```
 ```python
 class MeasurementBatch(BaseModel):
@@ -78,12 +80,14 @@ class MeasurementBatch(BaseModel):
     # Samsung HEART_RATE_STATUS per-reading lifecycle code (feat-watch-hr-status-surface).
     # Valid: {1, 0, -2, -3, -8, -10, -999}; null when the SDK did not provide one.
     hr_status: int | None = Field(None, description="Samsung HEART_RATE_STATUS per-reading lifecycle code.")
+    # Measurement source (polar-h10-validation): samsung_watch | polar_h10.
+    source: str = "samsung_watch"
 ```
 ```typescript
-export interface MeasurementBatch { local_id: string; timestamp: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; hr_status: number | null; }
+export interface MeasurementBatch { local_id: string; timestamp: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; hr_status: number | null; source: 'samsung_watch' | 'polar_h10'; }
 ```
 ```kotlin
-@Serializable data class MeasurementBatch(val localId: UUID, val timestamp: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null, val hrStatus: Int? = null)
+@Serializable data class MeasurementBatch(val localId: UUID, val timestamp: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null, val hrStatus: Int? = null, val source: String = "samsung_watch")
 ```
 
 ## BatchResponse

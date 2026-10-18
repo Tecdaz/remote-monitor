@@ -18,10 +18,10 @@ Objective: capturar BPM+RR de la Polar H10 en la app Wear por GATT estándar (si
 |----|-------|----|--------------------------|--------|--------|
 | T1 | Watch: `PolarHrsProvider` GATT (parse 0x2A37, Flow, timeout/null) + unit tests | S1,S2,S4 | inline (single unit ~120 líneas, sin razón Writer) | done (GREEN: PolarHrsParserTest 5/5 + suite :app:testDebugUnitTest green) | 975c1b8 |
 | T1b | SDK: spike Polar BLE SDK (HR+ACC streaming, JitPack, permisos) + decisión minSdk | S6 | innecesaria (una sola unidad; se cancela por L4) | cancelled (L4: sin SDK; ACC diferido) | — |
-| T2 | Watch: `source` en `MeasurementEntity` + migración 6_7 + `SensorOrchestrator` dual + permisos BLE + wiring | S1,S3,S5 | inline (single unit, superficies disjuntas pero secuencial) | done (RED unresolved refs → GREEN polar test 2/2 + suite green) | pending-commit |
-| T3 | Backend+contracts: `source` en Pydantic/model/migración/ingest/routers/WS + openapi/data-models/ws-types (+frontend drift `hr_status`) + tests | S1,S3,S5 | inline (single unidad lógica código+tests+docs juntos) | pending | — |
-| T4 | Docs: protocolo de validación polar-vs-samsung (sesión, métricas, ejemplo) | S3 | inline (solo docs) | pending | — |
-| T5 | Verification: suite watch+backend, diferencial GATT, cierre | S1-S5 | inline (per-action: suite en foreground una vez) | pending | — |
+| T2 | Watch: `source` en `MeasurementEntity` + migración 6_7 + `SensorOrchestrator` dual + permisos BLE + wiring | S1,S3,S5 | inline (single unit, superficies disjuntas pero secuencial) | done (RED unresolved refs → GREEN polar test 2/2 + suite green) | 28685ec |
+| T3 | Backend+contracts: `source` en Pydantic/model/migración/ingest/routers/WS + openapi/data-models/ws-types (+frontend drift `hr_status`) + tests | S1,S3,S5 | inline (single unidad lógica código+tests+docs juntos) | done (RED extra_forbid → GREEN 7/7 nuevo + 84 vecinas + 120 full backend + vitest 14/14) | pending-commit |
+| T4 | Docs: protocolo de validación polar-vs-samsung (sesión, métricas, ejemplo) | S3 | inline (solo docs) | done (`docs/polar-validation-protocol.md`) | pending-commit |
+| T5 | Verification: suite watch+backend, diferencial GATT, cierre | S1-S5 | inline (per-action: suite en foreground una vez) | done (backend 120 passed, watch suite green, openapi parse ok) | — |
 
 Forecast: ~550 líneas autoradas (provider 120 + entity/migración/orquestador 150 + backend/contratos 200 + docs 80). Running: 0. Slice: un commit por tarea (~100-150 líneas c/u); si T3 supera 400, partir en T3a (modelo+migración) / T3b (ingest+read+WS). Estrategia `ask-on-risk`: preguntar cadena solo si se supera el presupuesto antes del siguiente commit.
 

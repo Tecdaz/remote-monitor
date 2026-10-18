@@ -84,6 +84,16 @@ class MeasurementBatch(BaseModel):
         ),
     )
 
+    # polar-h10-validation: per-row source discriminator. Old watch
+    # builds send no `source`, so it defaults to the Samsung pipeline.
+    source: str = Field(
+        default="samsung_watch",
+        description=(
+            "Measurement source: `samsung_watch` (Samsung Health Sensor "
+            "SDK) or `polar_h10` (Polar H10 chest strap via BLE GATT)."
+        ),
+    )
+
     @field_validator("ibis_ms")
     @classmethod
     def _clamp_ibis(cls, v: list[int] | None) -> list[int] | None:
@@ -129,6 +139,19 @@ class MeasurementBatch(BaseModel):
             raise ValueError(
                 f"hr_status value {v} not in Samsung-documented set "
                 f"{{-999, -10, -8, -3, -2, 0, 1}}"
+            )
+        return v
+
+    @field_validator("source")
+    @classmethod
+    def _validate_source(cls, v: str) -> str:
+        # polar-h10-validation: closed set so a typo'd source can never
+        # silently merge two validation streams. Extend here if a third
+        # artifact joins the comparison.
+        if v not in {"samsung_watch", "polar_h10"}:
+            raise ValueError(
+                "source value "
+                f"{v!r} not in {{'samsung_watch', 'polar_h10'}}"
             )
         return v
 

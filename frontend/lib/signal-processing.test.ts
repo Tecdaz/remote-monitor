@@ -21,6 +21,8 @@ function makeMeasurement(
     spo2_percent: 98,
     ibis_ms: ibisMs,
     ibis_status: ibisStatus,
+    hr_status: null,
+    source: 'samsung_watch',
   }
 }
 
