@@ -19,11 +19,11 @@ Objective: capturar BPM+RR de la Polar H10 en la app Wear por GATT estándar (si
 | T1 | Watch: `PolarHrsProvider` GATT (parse 0x2A37, Flow, timeout/null) + unit tests | S1,S2,S4 | inline (single unit ~120 líneas, sin razón Writer) | done (GREEN: PolarHrsParserTest 5/5 + suite :app:testDebugUnitTest green) | 975c1b8 |
 | T1b | SDK: spike Polar BLE SDK (HR+ACC streaming, JitPack, permisos) + decisión minSdk | S6 | innecesaria (una sola unidad; se cancela por L4) | cancelled (L4: sin SDK; ACC diferido) | — |
 | T2 | Watch: `source` en `MeasurementEntity` + migración 6_7 + `SensorOrchestrator` dual + permisos BLE + wiring | S1,S3,S5 | inline (single unit, superficies disjuntas pero secuencial) | done (RED unresolved refs → GREEN polar test 2/2 + suite green) | 28685ec |
-| T3 | Backend+contracts: `source` en Pydantic/model/migración/ingest/routers/WS + openapi/data-models/ws-types (+frontend drift `hr_status`) + tests | S1,S3,S5 | inline (single unidad lógica código+tests+docs juntos) | done (RED extra_forbid → GREEN 7/7 nuevo + 84 vecinas + 120 full backend + vitest 14/14) | pending-commit |
-| T4 | Docs: protocolo de validación polar-vs-samsung (sesión, métricas, ejemplo) | S3 | inline (solo docs) | done (`docs/polar-validation-protocol.md`) | pending-commit |
+| T3 | Backend+contracts: `source` en Pydantic/model/migración/ingest/routers/WS + openapi/data-models/ws-types (+frontend drift `hr_status`) + tests | S1,S3,S5 | inline (single unidad lógica código+tests+docs juntos) | done (RED extra_forbid → GREEN 7/7 nuevo + 84 vecinas + 120 full backend + vitest 14/14) | b307f63 |
+| T4 | Docs: protocolo de validación polar-vs-samsung (sesión, métricas, ejemplo) | S3 | inline (solo docs) | done (`docs/polar-validation-protocol.md`) | 59233f7 |
 | T5 | Verification: suite watch+backend, diferencial GATT, cierre | S1-S5 | inline (per-action: suite en foreground una vez) | done (backend 120 passed, watch suite green, openapi parse ok) | — |
 
-Forecast: ~550 líneas autoradas (provider 120 + entity/migración/orquestador 150 + backend/contratos 200 + docs 80). Running: 0. Slice: un commit por tarea (~100-150 líneas c/u); si T3 supera 400, partir en T3a (modelo+migración) / T3b (ingest+read+WS). Estrategia `ask-on-risk`: preguntar cadena solo si se supera el presupuesto antes del siguiente commit.
+Forecast: ~550 líneas autoradas (provider 120 + entity/migración/orquestador 150 + backend/contratos 200 + docs 80). Running: ~880 (T1 ~290, T2 ~285, T3 ~260, T4 41). Forecast superado por tests + contratos; slices se mantuvieron <400 por commit. Slice: un commit por tarea (~100-150 líneas c/u); si T3 supera 400, partir en T3a (modelo+migración) / T3b (ingest+read+WS). Estrategia `ask-on-risk`: preguntar cadena solo si se supera el presupuesto antes del siguiente commit.
 
 ## Log
 
@@ -34,4 +34,4 @@ Forecast: ~550 líneas autoradas (provider 120 + entity/migración/orquestador 1
 - Investigación (S2): Polar BLE SDK exige minSdk 33 vs watch minSdk 30 → se elige GATT estándar HRS para MVP (BPM+RR, sin ECG, sin dependencia JitPack). H10: HR 1 Hz + RR ms + broadcast + ECG 130 Hz (diferido) + ACC (diferido). Fuentes: polar-ble-sdk README, PolarH10.md, PolarOnlineStreamingApi.
 - Mapa (explorer ses_eb053643dffeu87hSW8WMaT1hA): sin `source` en ningún nivel; `extra="forbid"` obliga cambio atómico; manifest sin permisos BLE; Room v6 con precedente migración-por-columna; frontend `types.ts` ya deriva en `hr_status`; WS vía `manager.publish` en ingest.
 - Decisión: colector = el propio watch (mismo reloj, mismo `POST /measurements`, misma sesión) para evitar sincronía NTP entre dispositivos.
-- Next: T1 PolarHrsProvider GATT + tests en esta rama.
+- Cierre (2026-10-18): T1-T5 done en rama `feat-polar-h10-validation` (975c1b8, 28685ec, b307f63, 59233f7). Backend 120 passed, watch suite green, vitest 14/14. Falta: push + PR (decisión del operador) y validación con banda real (`-PpolarDeviceId`).
