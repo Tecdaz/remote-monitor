@@ -7,9 +7,11 @@ package com.remotemonitor.watch.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -34,11 +36,24 @@ import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import androidx.compose.ui.platform.LocalContext
+import com.remotemonitor.watch.BuildConfig
 import com.remotemonitor.watch.WatchApplication
+import com.remotemonitor.watch.sensor.PolarPermissions
 import com.remotemonitor.watch.sync.SyncForegroundService
 import com.remotemonitor.watch.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
+
+    // polar-h10-validation follow-up: system dialog for the BLE runtime
+    // permissions. The polar retry loop already survives denial (it maps
+    // SecurityException to null + close and retries every 5 s), so the
+    // result needs no action here — a grant is picked up on the next
+    // retry, a denial simply keeps Polar dormant until the operator
+    // grants it in Settings and restarts the app.
+    private val blePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            Log.i(TAG, "ble permission result: $grants")
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,6 +65,17 @@ class MainActivity : ComponentActivity() {
         // the screen wakes back up.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val app = application as WatchApplication
+        // polar-h10-validation follow-up: ask for the BLE runtime
+        // permissions only when a Polar strap is configured
+        // (`-PpolarDeviceId`). Samsung-only builds (the default) see
+        // zero behavior change — no dialog is ever shown.
+        if (BuildConfig.POLAR_DEVICE_ID.isNotEmpty()) {
+            val missing = PolarPermissions.missingBlePermissions(this)
+            if (missing.isNotEmpty()) {
+                Log.i(TAG, "requesting ble permissions: $missing")
+                blePermissionLauncher.launch(missing.toTypedArray())
+            }
+        }
         // WU-2.19 GREEN: the IBI sync loop runs as a foreground service.
         // The service is declared `exported="false"` in AndroidManifest.xml
         // (Android 12+ security default for services with a
@@ -77,6 +103,10 @@ class MainActivity : ComponentActivity() {
                 WatchApp(app = app)
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "MainActivity"
     }
 }
 
