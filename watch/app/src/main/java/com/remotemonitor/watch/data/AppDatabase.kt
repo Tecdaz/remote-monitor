@@ -20,6 +20,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * - Version 7 — added `source` TEXT NOT NULL DEFAULT 'samsung_watch'
  *   discriminator (polar-h10-validation T2). Real [MIGRATION_6_7]
  *   backfills pre-T2 rows as Samsung.
+ * - Version 8 — added nullable `ecg_uv` (JSON int array, µV) +
+ *   `ecg_sample_rate_hz` INTEGER for Polar H10 ECG snippets
+ *   (polar-ecg-integration T2). Real [MIGRATION_7_8] preserves
+ *   pending rows; non-ECG rows keep both columns NULL.
  * - Schema is exported to `app/schemas/` by the Room compiler
  *   (KSP arg `room.schemaLocation` in `app/build.gradle.kts`).
  *
@@ -33,7 +37,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [MeasurementEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -72,6 +76,19 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE measurements ADD COLUMN source TEXT NOT NULL DEFAULT 'samsung_watch'")
+            }
+        }
+
+        /**
+         * polar-ecg-integration T2: explicit migration from v7 to v8
+         * adds nullable `ecg_uv` (JSON int array, µV @ sample rate) and
+         * `ecg_sample_rate_hz` INTEGER for Polar H10 ECG snippets.
+         * Pending non-ECG rows keep both columns NULL.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE measurements ADD COLUMN ecg_uv TEXT")
+                db.execSQL("ALTER TABLE measurements ADD COLUMN ecg_sample_rate_hz INTEGER")
             }
         }
     }

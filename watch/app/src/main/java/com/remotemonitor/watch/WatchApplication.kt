@@ -10,7 +10,9 @@ import com.remotemonitor.watch.identity.DeviceInfoProvider
 import com.remotemonitor.watch.identity.DeviceInfoProviderImpl
 import com.remotemonitor.watch.identity.IdentityRepository
 import com.remotemonitor.watch.identity.IdentityRepositoryImpl
+import com.remotemonitor.watch.sensor.EcgSnippetProvider
 import com.remotemonitor.watch.sensor.HeartRateSensor
+import com.remotemonitor.watch.sensor.PolarEcgProvider
 import com.remotemonitor.watch.sensor.PolarHrsProvider
 import com.remotemonitor.watch.sensor.SamsungHeartRateProvider
 import com.remotemonitor.watch.sensor.SamsungSpO2Provider
@@ -96,12 +98,25 @@ class WatchApplication : Application() {
         }
     }
 
+    // T2 polar-ecg-integration: Polar SDK ECG snippet provider. Same
+    // gate as the GATT HR provider (needs a configured strap). Shares
+    // the strap's second BLE slot with the GATT provider; the H10
+    // allows 2 centrals and both clients run on this watch.
+    val polarEcgProvider: EcgSnippetProvider? by lazy {
+        BuildConfig.POLAR_DEVICE_ID.takeIf { it.isNotEmpty() }?.let {
+            PolarEcgProvider(this, it)
+        }
+    }
+
     val sensorOrchestrator: SensorOrchestrator by lazy {
         SensorOrchestrator(
             heartRateSensor = heartRateSensor,
             spO2Provider = spO2Provider,
             dao = measurementDao,
             polarSensor = polarHeartRateSensor,
+            // T6 band-only: -PpolarOnly=true pauses Samsung; Polar owns health.
+            samsungEnabled = !BuildConfig.POLAR_ONLY,
+            ecgProvider = polarEcgProvider,
         )
     }
 
@@ -129,6 +144,9 @@ class WatchApplication : Application() {
             // T2 polar-h10-validation: real migration preserves pending
             // rows when adding the `source` discriminator.
             .addMigrations(AppDatabase.MIGRATION_6_7)
+            // polar-ecg-integration T2: real migration preserves pending
+            // rows when adding the `ecg_uv` / `ecg_sample_rate_hz` columns.
+            .addMigrations(AppDatabase.MIGRATION_7_8)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }

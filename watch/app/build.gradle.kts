@@ -19,7 +19,7 @@ android {
 
     defaultConfig {
         applicationId = "com.remotemonitor.watch"
-        minSdk = 30
+        minSdk = 33
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
@@ -41,6 +41,11 @@ android {
             //   ./gradlew :app:assembleDebug -PpolarDeviceId=H10_ABC123
             val polarDeviceId = (project.findProperty("polarDeviceId") as String?) ?: ""
             buildConfigField("String", "POLAR_DEVICE_ID", "\"$polarDeviceId\"")
+            // T6 polar-ecg-integration (band-only): pause the Samsung
+            // pipeline so only the strap is measured.
+            //   ./gradlew :app:assembleDebug -PpolarDeviceId="Polar H10" -PpolarOnly=true
+            val polarOnly = (project.findProperty("polarOnly") as String?)?.toBoolean() ?: false
+            buildConfigField("Boolean", "POLAR_ONLY", "$polarOnly")
         }
         release {
             isMinifyEnabled = false
@@ -52,6 +57,8 @@ android {
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
             val polarDeviceId = (project.findProperty("polarDeviceId") as String?) ?: ""
             buildConfigField("String", "POLAR_DEVICE_ID", "\"$polarDeviceId\"")
+            val polarOnly = (project.findProperty("polarOnly") as String?)?.toBoolean() ?: false
+            buildConfigField("Boolean", "POLAR_ONLY", "$polarOnly")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -137,6 +144,7 @@ dependencies {
 
     // Sync + data layer (T-WATCH-17..24 production code; Room + KSP added in T-WATCH-18)
     implementation(libs.datastore.preferences)
+    implementation(libs.polar.ble.sdk)
     implementation(libs.health.services.client)
     implementation(libs.retrofit)
     implementation(libs.converter.moshi)

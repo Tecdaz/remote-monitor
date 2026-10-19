@@ -188,7 +188,7 @@ class SyncForegroundServiceOngoingActivityTest {
     private fun cancelServiceScope() {
         // The `scope` field is `private`. Cancel it via reflection
         // so the `startSyncLoop` coroutine (which has a
-        // `delay(SYNC_INTERVAL_MS)` of 5 s) doesn't consume the
+        // `delay(SYNC_INTERVAL_MS)` of 1 s) doesn't consume the
         // test thread.
         val scope: kotlinx.coroutines.CoroutineScope =
             ReflectionHelpers.getField(service, "scope") as kotlinx.coroutines.CoroutineScope

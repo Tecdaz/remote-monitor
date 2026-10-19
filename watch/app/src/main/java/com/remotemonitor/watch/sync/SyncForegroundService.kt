@@ -27,14 +27,14 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service that drives the 5-second sync loop (REQ-WATCH-07,
+ * Foreground service that drives the 1-second sync loop (REQ-WATCH-07,
  * REQ-WATCH-08, REQ-WATCH-09).
  *
  * Architecture:
  * - `onCreate`: build the persistent notification, start as a
  *   foreground service (type = `health`, Wear OS 5+ requirement),
  *   launch a coroutine that runs `worker.runOnce()` every
- *   [SYNC_INTERVAL_MS] (5 s) until cancelled, and publish the paired
+ *   [SYNC_INTERVAL_MS] (1 s) until cancelled, and publish the paired
  *   OngoingActivity so the watch-face shows a heart icon + sync
  *   status (wear-ui-guidelines D7, spec #448 cap 5).
  * - Idle stop: track `lastNonEmptyAt`. If the worker reports an empty
@@ -298,8 +298,11 @@ class SyncForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "sync"
 
-        /** REQ-WATCH-07: 5-second sync cadence. */
-        const val SYNC_INTERVAL_MS = 5_000L
+        /** REQ-WATCH-07: 1-second sync cadence (clinical-monitor latency).
+         *  Matches the ~1 Hz sensor emission so every reading reaches
+         *  the backend within ~1 s + POST RTT instead of queueing up to
+         *  5 s in Room. Costs more radio/battery by design. */
+        const val SYNC_INTERVAL_MS = 1_000L
 
         /** REQ-WATCH-08: 10-minute idle stop. */
         const val IDLE_TIMEOUT_MS = 10 * 60 * 1_000L

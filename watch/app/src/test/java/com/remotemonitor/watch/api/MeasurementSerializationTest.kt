@@ -265,4 +265,58 @@ class MeasurementSerializationTest {
         assertNotNull(parsed)
         assertNull(parsed!!.ibisStatus)
     }
+
+    /**
+     * T2 polar-ecg-integration: `ecg_uv` + `ecg_sample_rate_hz`
+     * round-trip through Moshi as a JSON int array + int, using
+     * snake_case wire keys.
+     */
+    @Test
+    fun ecg_snippet_round_trips_through_moshi() {
+        val voltages = List(1300) { it - 650 }
+        val original = MeasurementEntity(
+            localId = "L-ECG-1",
+            timestamp = 1_719_760_272_000L,
+            heartRateBpm = null,
+            spo2Percent = null,
+            source = MeasurementEntity.SOURCE_POLAR,
+            ecgUv = voltages,
+            ecgSampleRateHz = 130,
+        )
+
+        val adapter = moshi.adapter(MeasurementEntity::class.java)
+        val json = adapter.toJson(original)
+        assertTrue(
+            "body must carry ecg_sample_rate_hz=130, got: $json",
+            json.contains("\"ecg_sample_rate_hz\":130"),
+        )
+        assertTrue(
+            "body must serialize ecg_uv as JSON int array, got: ${json.take(120)}",
+            json.contains("\"ecg_uv\":["),
+        )
+
+        val parsed = adapter.fromJson(json)
+        assertNotNull("deserialized row must not be null", parsed)
+        assertEquals(voltages, parsed!!.ecgUv)
+        assertEquals(130, parsed.ecgSampleRateHz)
+        assertNull(parsed.heartRateBpm)
+    }
+
+    @Test
+    fun null_ecg_round_trips_as_omitted_or_explicit_null() {
+        val original = MeasurementEntity(
+            localId = "L-ECG-2",
+            timestamp = 1_719_760_272_000L,
+            heartRateBpm = 72,
+            spo2Percent = null,
+            ecgUv = null,
+            ecgSampleRateHz = null,
+        )
+
+        val json = moshi.adapter(MeasurementEntity::class.java).toJson(original)
+        assertTrue(
+            "HR rows must either omit ecg_uv or write it as null, got: ${json.take(200)}",
+            !json.contains("\"ecg_uv\":") || json.contains("\"ecg_uv\":null"),
+        )
+    }
 }

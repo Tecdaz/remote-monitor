@@ -43,6 +43,14 @@ import com.squareup.moshi.Json
  * (`polar-h10-validation` T2). `samsung_watch` = Samsung SDK pipeline,
  * `polar_h10` = Polar H10 GATT pipeline. Non-null with a Samsung
  * default so pre-T2 rows backfill cleanly via `MIGRATION_6_7`.
+ *
+ * **`ecg_uv` / `ecg_sample_rate_hz`**: Polar H10 ECG snippet
+ * (polar-ecg-integration T2). 10 s @ 130 Hz = 1300 voltages in µV,
+ * persisted as a JSON int array reusing [IbiStatusConverter] (same
+ * `List<Int>?` ↔ JSON TEXT shape as `ibis_status`; a second
+ * converter for the same type would be ambiguous for Room).
+ * `null` on every non-ECG row. Rows carrying ECG have
+ * `heartRateBpm = null` and `source = polar_h10`.
  */
 @Entity(
     tableName = "measurements",
@@ -76,6 +84,12 @@ data class MeasurementEntity(
     @ColumnInfo(name = "source")
     @Json(name = "source")
     val source: String = SOURCE_SAMSUNG,
+    @ColumnInfo(name = "ecg_uv")
+    @Json(name = "ecg_uv")
+    val ecgUv: List<Int>? = null,
+    @ColumnInfo(name = "ecg_sample_rate_hz")
+    @Json(name = "ecg_sample_rate_hz")
+    val ecgSampleRateHz: Int? = null,
 ) {
     companion object {
         const val SOURCE_SAMSUNG = "samsung_watch"

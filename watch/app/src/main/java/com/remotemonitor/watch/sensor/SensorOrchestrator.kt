@@ -56,6 +56,20 @@ class SensorOrchestrator(
     private val clock: () -> Long = System::currentTimeMillis,
     private val offWristTimeoutMs: Long = DEFAULT_OFF_WRIST_TIMEOUT_MS,
     private val polarSensor: HeartRateSensor? = null,
+    /**
+     * Band-only mode (polar-ecg-integration T6): when false the Samsung
+     * pipeline is paused and the Polar strap becomes the sole source.
+     * The Polar loop then owns `healthState` so the home vitals Flow
+     * keeps working against the band.
+     */
+    private val samsungEnabled: Boolean = true,
+    /**
+     * T2 polar-ecg-integration: optional ECG snippet source (Polar SDK).
+     * Each 10 s snippet is persisted as its own `polar_h10` row with
+     * `heartRateBpm = null` and the `ecgUv` / `ecgSampleRateHz`
+     * columns set. `null` = ECG disabled (HR-only pipelines).
+     */
+    private val ecgProvider: EcgSnippetProvider? = null,
 ) {
     private var job: Job? = null
 
@@ -82,16 +96,78 @@ class SensorOrchestrator(
             // T2 polar-h10-validation: Samsung stays the primary pipeline
             // (owns healthState); the Polar strap collects concurrently as
             // an independent validation source. Both retry independently.
-            val samsungJob = launch {
-                runRetryLoop(heartRateSensor, MeasurementEntity.SOURCE_SAMSUNG, updateHealth = true)
+            // T6 polar-ecg-integration (band-only): with samsungEnabled=false
+            // the Samsung loop is paused and Polar becomes the sole source
+            // (and owns healthState so the UI keeps reflecting the band).
+            if (!samsungEnabled) {
+                Log.i(TAG, "band-only mode: samsung pipeline paused")
+            }
+            if (!samsungEnabled && polarSensor == null) {
+                Log.w(TAG, "band-only mode with no polar sensor configured; nothing to collect")
+                return@launch
+            }
+            val samsungJob = if (samsungEnabled) {
+                launch {
+                    runRetryLoop(heartRateSensor, MeasurementEntity.SOURCE_SAMSUNG, updateHealth = true)
+                }
+            } else {
+                null
             }
             val polarJob = polarSensor?.let { polar ->
                 launch {
-                    runRetryLoop(polar, MeasurementEntity.SOURCE_POLAR, updateHealth = false)
+                    runRetryLoop(polar, MeasurementEntity.SOURCE_POLAR, updateHealth = !samsungEnabled)
                 }
             }
-            samsungJob.join()
+            // T2 polar-ecg-integration: ECG snippets persist as their
+            // own rows (no BPM). Same retry semantics as the HR loops.
+            val ecgJob = ecgProvider?.let { ecg ->
+                launch {
+                    runEcgLoop(ecg)
+                }
+            }
+            samsungJob?.join()
             polarJob?.join()
+            ecgJob?.join()
+        }
+    }
+
+    /**
+     * T2 polar-ecg-integration: collect+retry loop for ECG snippets.
+     * Each 10 s snippet becomes one `polar_h10` Room row with
+     * `heartRateBpm = null`; the backend treats it as a validation
+     * strip, not a vital sign. Failures retry after [RETRY_DELAY_MS]
+     * like the HR loops; only cancellation breaks the loop.
+     */
+    private suspend fun CoroutineScope.runEcgLoop(
+        ecg: EcgSnippetProvider,
+    ) {
+        while (isActive) {
+            val result = runCatching {
+                ecg.snippets.collect { snippet ->
+                    if (snippet == null) return@collect
+                    if (snippet.voltagesUv.isEmpty()) return@collect
+                    dao.insert(
+                        MeasurementEntity(
+                            localId = UUID.randomUUID().toString(),
+                            timestamp = clock(),
+                            heartRateBpm = null,
+                            spo2Percent = null,
+                            source = MeasurementEntity.SOURCE_POLAR,
+                            ecgUv = snippet.voltagesUv,
+                            ecgSampleRateHz = snippet.sampleRateHz,
+                        ),
+                    )
+                }
+            }
+            val cause = result.exceptionOrNull()
+            when {
+                cause is CancellationException -> return
+                cause != null -> Log.w(TAG, "ECG flow threw; retrying in ${RETRY_DELAY_MS}ms", cause)
+                else -> Log.d(TAG, "ECG flow completed; retrying in ${RETRY_DELAY_MS}ms")
+            }
+            if (isActive) {
+                delay(RETRY_DELAY_MS)
+            }
         }
     }
 

@@ -19,6 +19,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }
         // T-WATCH-12 / REQ-WATCH-12: the Samsung Health Sensor SDK AAR
         // is committed at app/libs/ and consumed via a flat directory
         // repository. This gives the AAR a proper module identity
