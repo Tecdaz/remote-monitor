@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  classifyIBIAnomalies,
   computePoincare,
   computePSD,
+  isPhysiologicallyImplausible,
   resolveTachogramYDomain,
   selectBeatsForChart,
+  selectLatestEcgSnippet,
 } from './signal-processing'
 import type { Measurement } from './types'
 
@@ -24,6 +27,8 @@ function makeMeasurement(
     ibis_status: ibisStatus,
     hr_status: null,
     source: 'samsung_watch',
+    ecg_uv: null,
+    ecg_sample_rate_hz: null,
   }
 }
 
@@ -210,5 +215,115 @@ describe('resolveTachogramYDomain', () => {
   it('rejects non-finite bounds', () => {
     expect(resolveTachogramYDomain(NaN, 1200)).toEqual(['auto', 1200])
     expect(resolveTachogramYDomain(400, Infinity)).toEqual([400, 'auto'])
+  })
+})
+
+describe('isPhysiologicallyImplausible', () => {
+  it('accepts resting sinus rhythm', () => {
+    expect(isPhysiologicallyImplausible(800)).toBe(false)
+    expect(isPhysiologicallyImplausible(300)).toBe(false)
+    expect(isPhysiologicallyImplausible(2000)).toBe(false)
+  })
+
+  it('rejects outside 300–2000 ms', () => {
+    expect(isPhysiologicallyImplausible(260)).toBe(true)
+    expect(isPhysiologicallyImplausible(2300)).toBe(true)
+    expect(isPhysiologicallyImplausible(0)).toBe(true)
+  })
+})
+
+describe('classifyIBIAnomalies', () => {
+  it('flags out-of-range beats', () => {
+    const result = classifyIBIAnomalies([800, 250, 900])
+    expect(result[1]).toEqual({ isAnomaly: true, kind: 'out-of-range' })
+    expect(result[0].isAnomaly).toBe(false)
+  })
+
+  it('flags jumps > 20 % vs the previous beat', () => {
+    // 800 → 1000 = +25 %: probable ectópico/artefacto.
+    const result = classifyIBIAnomalies([800, 1000])
+    expect(result[1]).toEqual({ isAnomaly: true, kind: 'ectopic-beat' })
+  })
+
+  it('keeps normal sinus variability clean', () => {
+    // 800 → 820 = +2.5 %: variabilidad sinusal normal.
+    const result = classifyIBIAnomalies([800, 820, 810])
+    expect(result.every((r) => !r.isAnomaly)).toBe(true)
+  })
+
+  it('does not compare across gaps > 3 s', () => {
+    const result = classifyIBIAnomalies([800, 1200], [0, 10_000])
+    expect(result[1].isAnomaly).toBe(false)
+  })
+})
+
+describe('selectBeatsForChart anomalies', () => {
+  it('annotates sensor-invalid beats in raw mode', () => {
+    const measurements = [makeMeasurement(10_000, [800, 820], [0, -1])]
+    const beats = selectBeatsForChart(measurements, 'raw')
+    expect(beats).toHaveLength(2)
+    expect(beats[0].isAnomaly).toBe(false)
+    expect(beats[1]).toMatchObject({
+      isAnomaly: true,
+      anomalyKind: 'sensor-invalid',
+    })
+  })
+
+  it('annotates out-of-range beats even when the sensor flag is clean', () => {
+    const measurements = [makeMeasurement(10_000, [800, 2500], [0, 0])]
+    const beats = selectBeatsForChart(measurements, 'filtered')
+    expect(beats).toHaveLength(2)
+    expect(beats[1]).toMatchObject({
+      isAnomaly: true,
+      anomalyKind: 'out-of-range',
+    })
+  })
+
+  it('annotates ectopic jumps in filtered mode', () => {
+    const measurements = [makeMeasurement(10_000, [800, 1100], [0, 0])]
+    const beats = selectBeatsForChart(measurements, 'filtered')
+    expect(beats[1]).toMatchObject({
+      isAnomaly: true,
+      anomalyKind: 'ectopic-beat',
+    })
+  })
+})
+
+describe('selectLatestEcgSnippet', () => {
+  function ecgMeasurement(
+    timestampMs: number,
+    voltages: number[] | null,
+  ): Measurement {
+    return {
+      ...makeMeasurement(timestampMs, [800]),
+      source: 'polar_h10',
+      heart_rate_bpm: null,
+      ibis_ms: null,
+      ecg_uv: voltages,
+      ecg_sample_rate_hz: voltages === null ? null : 130,
+    }
+  }
+
+  it('returns null when no row carries ECG', () => {
+    expect(selectLatestEcgSnippet([makeMeasurement(10_000, [800])])).toBeNull()
+  })
+
+  it('picks the newest strip', () => {
+    const measurements = [
+      ecgMeasurement(20_000, [1, 2, 3]),
+      ecgMeasurement(10_000, [4, 5, 6]),
+    ]
+    const snippet = selectLatestEcgSnippet(measurements)
+    expect(snippet?.voltages).toEqual([1, 2, 3])
+    expect(snippet?.sampleRateHz).toBe(130)
+    expect(snippet?.timestampMs).toBe(20_000)
+  })
+
+  it('skips rows with empty or missing strips', () => {
+    const measurements = [
+      ecgMeasurement(20_000, []),
+      ecgMeasurement(10_000, [7, 8]),
+    ]
+    expect(selectLatestEcgSnippet(measurements)?.voltages).toEqual([7, 8])
   })
 })

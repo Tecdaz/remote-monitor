@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CartesianGrid,
   ReferenceLine,
@@ -247,20 +247,7 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
       ? '0 puntos'
       : `${points.length} puntos · ventana activa`
 
-  if (points.length === 0) {
-    return (
-      <ChartCard
-        title="Plot de Poincaré"
-        subtitle="Par (IBI[n], IBI[n+1]) · dispersión de latidos consecutivos"
-        meta={meta}
-      >
-        <ChartEmptyState
-          message="Sin dispersión todavía"
-          hint="Se necesitan al menos dos latidos consecutivos para trazar un punto."
-        />
-      </ChartCard>
-    )
-  }
+  const hasPoints = points.length > 0
 
   // Symmetric axis range so the plot stays square.
   let lo = Number.POSITIVE_INFINITY
@@ -280,22 +267,25 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
     }
   }
   const pad = Math.max((hi - lo) * 0.05, 10)
-  const domain: [number, number] = [lo - pad, hi + pad]
-  const identityLine: PoincarePoint[] = [
-    { x: domain[0], y: domain[0] },
-    { x: domain[1], y: domain[1] },
-  ]
-  const temporalCircleShape = createTemporalCircleShape(
-    oldestTimestampMs,
-    newestTimestampMs,
-  )
+  // Hooks must run unconditionally on every render (React #310):
+  // the empty-state early return sits AFTER all hooks. The domain
+  // below is garbage when empty but never rendered in that case.
+  const domain: [number, number] =
+    hasPoints ? [lo - pad, hi + pad] : [0, 1]
 
-  return (
-    <ChartCard
-      title="Plot de Poincaré"
-      subtitle="Par (IBI[n], IBI[n+1]) · dispersión de latidos consecutivos"
-      meta={meta}
-    >
+  // Realtime note: the parent re-renders on every 1 Hz WebSocket tick,
+  // but the point set only grows when new beats arrive. The 600-circle
+  // scatter is memo'd on point count + time bounds + domain so ticks
+  // without new beats skip the heavy SVG re-render. `points` is in
+  // deps to catch in-place rebuilds (same length, new content).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const scatterView = useMemo(() => {
+    const identityLine: PoincarePoint[] = [
+      { x: domain[0], y: domain[0] },
+      { x: domain[1], y: domain[1] },
+    ]
+    const shape = createTemporalCircleShape(oldestTimestampMs, newestTimestampMs)
+    return (
       <ResponsiveContainer width="100%" height={320}>
         <ScatterChart margin={{ top: 16, right: 24, bottom: 24, left: 16 }}>
           <CartesianGrid stroke={chartGrid} strokeDasharray="3 3" />
@@ -348,7 +338,7 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
           <Scatter
             name="Latidos"
             data={points}
-            shape={temporalCircleShape}
+            shape={shape}
             isAnimationActive={false}
           />
           {/* Identity reference rendered as a Scatter with no shape so it
@@ -364,6 +354,31 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
           />
         </ScatterChart>
       </ResponsiveContainer>
+    )
+  }, [hasPoints, points, points.length, oldestTimestampMs, newestTimestampMs, lo, hi])
+
+  if (!hasPoints) {
+    return (
+      <ChartCard
+        title="Plot de Poincaré"
+        subtitle="Par (IBI[n], IBI[n+1]) · dispersión de latidos consecutivos"
+        meta={meta}
+      >
+        <ChartEmptyState
+          message="Sin dispersión todavía"
+          hint="Se necesitan al menos dos latidos consecutivos para trazar un punto."
+        />
+      </ChartCard>
+    )
+  }
+
+  return (
+    <ChartCard
+      title="Plot de Poincaré"
+      subtitle="Par (IBI[n], IBI[n+1]) · dispersión de latidos consecutivos"
+      meta={meta}
+    >
+      {scatterView}
       <div
         role="img"
         aria-label="Mapa temporal de los puntos de Poincaré"

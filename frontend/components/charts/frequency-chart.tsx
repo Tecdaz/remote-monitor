@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import {
   Area,
   AreaChart,
@@ -46,13 +46,38 @@ const BAND_LEGEND: Array<{
   { key: 'HF', swatch: 'bg-chart-hf/40', label: 'HF' },
 ]
 
+/** PSD refresh cadence: HRV bands move over minutes, not seconds. */
+const PSD_REFRESH_MS = 5_000
+
 /**
  * Power spectral density chart of the IBI series. Visualises the
  * canonical HRV bands (VLF / LF / HF) on the clinically-meaningful
  * 0 – 0.5 Hz range.
+ *
+ * Realtime note: HRV bands are stable over minutes, so the PSD is NOT
+ * recomputed on every 1 Hz WebSocket tick. It refreshes at most every
+ * 5 s (`PSD_REFRESH_MS`), when the mode changes, or when the cache
+ * fingerprint changes (device toggle). This keeps the 1 Hz tachogram
+ * fluid while the spectrum follows seconds later.
  */
 export function FrequencyChart({ measurements, mode }: FrequencyChartProps) {
-  const bins = useMemo(() => computePSD(measurements, mode), [measurements, mode])
+  const measRef = useRef(measurements)
+  measRef.current = measurements
+
+  // Cheapest possible change detectors: no sorting, one linear pass.
+  let newestTs = 0
+  for (const m of measurements) {
+    const t = Date.parse(m.timestamp)
+    if (t > newestTs) newestTs = t
+  }
+  const timeBucket = Math.floor(newestTs / PSD_REFRESH_MS)
+  const fingerprint = `${measurements.length}|${measurements[0]?.id ?? ''}|${measurements[measurements.length - 1]?.id ?? ''}`
+
+  const bins = useMemo(
+    () => computePSD(measRef.current, mode),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, timeBucket, fingerprint],
+  )
   const displayBins = useMemo(
     () => bins.filter((b) => b.frequency <= 0.5),
     [bins],

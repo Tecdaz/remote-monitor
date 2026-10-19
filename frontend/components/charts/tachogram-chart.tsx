@@ -29,12 +29,38 @@ import {
   chartLineLatest,
   borderStrong,
   panel,
+  statusDanger,
 } from '../../lib/theme-colors'
 
 interface TachogramChartProps {
   measurements: Measurement[]
   mode: BeatMode
   connectionState: ConnectionState
+}
+
+const ANOMALY_LABEL: Record<string, string> = {
+  'sensor-invalid': 'sensor inválido',
+  'out-of-range': 'fuera de rango (300–2000 ms)',
+  'ectopic-beat': 'salto > 20 % vs. previo',
+}
+
+function AnomalyDot(props: {
+  cx?: number
+  cy?: number
+  payload?: TachogramPoint
+}) {
+  const { cx, cy, payload } = props
+  if (cx === undefined || cy === undefined || !payload?.isAnomaly) return <g />
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={4.5}
+      fill={statusDanger}
+      stroke={panel}
+      strokeWidth={1.5}
+    />
+  )
 }
 
 /**
@@ -70,6 +96,7 @@ export function TachogramChart({
 
   const lastUpdateIso = data.length > 0 ? data[data.length - 1].timestamp : null
   const latest: TachogramPoint | undefined = data[data.length - 1]
+  const anomalyCount = data.filter((d) => d.isAnomaly).length
 
   const allBeatsInvalid =
     data.length === 0 &&
@@ -83,9 +110,14 @@ export function TachogramChart({
     ? 'El sensor indica que ningún latido reciente pasó el control de calidad.'
     : 'La ventana de 60 segundos se completará a medida que lleguen nuevas mediciones.'
 
-  const meta = data.length > 0
-    ? `${data.length} latidos · último IBI ${formatIbiMs(latest!.ibiMs)}`
-    : 'Ventana 60 s'
+  const metaBase =
+    data.length > 0
+      ? `${data.length} latidos · último IBI ${formatIbiMs(latest!.ibiMs)}`
+      : 'Ventana 60 s'
+  const meta =
+    anomalyCount > 0
+      ? `${metaBase} · ${anomalyCount} anómalo${anomalyCount === 1 ? '' : 's'}`
+      : metaBase
 
   return (
     <ChartCard
@@ -163,14 +195,26 @@ export function TachogramChart({
             <Tooltip
               contentStyle={TOOLTIP_STYLE}
               labelFormatter={(label) => formatClockTime(label as number)}
-              formatter={(value) => [formatIbiMs(Number(value)), 'IBI']}
+              formatter={(value, _name, item) => {
+                const payload = (item?.payload ??
+                  {}) as Partial<TachogramPoint>
+                const base = formatIbiMs(Number(value))
+                if (payload.isAnomaly) {
+                  const reason =
+                    (payload.anomalyKind != null &&
+                      ANOMALY_LABEL[payload.anomalyKind]) ||
+                    'anómalo'
+                  return [`${base} · ${reason}`, 'IBI']
+                }
+                return [base, 'IBI']
+              }}
             />
             <Line
               type="monotone"
               dataKey="ibiMs"
               stroke={chartLine}
               strokeWidth={1.75}
-              dot={false}
+              dot={<AnomalyDot />}
               isAnimationActive={false}
               connectNulls
             />
@@ -189,6 +233,22 @@ export function TachogramChart({
           </LineChart>
         </ResponsiveContainer>
       )}
+      {data.length > 0 ? (
+        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-clinical-inkFaint">
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="inline-block h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: statusDanger }}
+            />
+            IBI anómalo
+          </span>
+          <span>
+            sensor inválido · fuera de 300–2000 ms (30–200 bpm) · salto &gt;
+            20 % vs. previo
+          </span>
+        </p>
+      ) : null}
     </ChartCard>
   )
 }

@@ -7,6 +7,7 @@ import {
   PatientHeaderSkeleton,
 } from './charts/patient-header'
 import { PoincareChart } from './charts/poincare-chart'
+import { EcgStripChart } from './charts/ecg-strip-chart'
 import { TachogramChart } from './charts/tachogram-chart'
 import { FrequencyChart } from './charts/frequency-chart'
 import { usePatientChart } from '../hooks/use-patient-chart'
@@ -106,6 +107,7 @@ export function ChartView({ patientId }: { patientId: string }) {
             mode={effectiveMode}
             connectionState={connectionState}
           />
+          <EcgStripChart measurements={measurements} />
           <PoincareChart measurements={measurements} mode={effectiveMode} />
           <FrequencyChart measurements={measurements} mode={effectiveMode} />
         </div>

@@ -24,6 +24,8 @@ function makeMeasurement(
     ibis_status: [0],
     hr_status: 1,
     source: 'samsung_watch',
+    ecg_uv: null,
+    ecg_sample_rate_hz: null,
     ...overrides,
   }
 }
