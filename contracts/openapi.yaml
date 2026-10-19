@@ -257,6 +257,17 @@ components:
           enum: [samsung_watch, polar_h10]
           default: samsung_watch
           description: "Measurement source (polar-h10-validation). `samsung_watch` = Samsung Health Sensor SDK pipeline, `polar_h10` = Polar H10 chest strap via BLE GATT. Old clients omit it and ingest as `samsung_watch`."
+        ecg_sample_rate_hz:
+          type: [integer, "null"]
+          enum: [130, null]
+          default: null
+          description: "Sample rate of `ecg_uv` in Hz (polar-ecg-integration; H10 ECG streams at 130 Hz). `null` on non-ECG rows."
+        ecg_uv:
+          type: [array, "null"]
+          items: { type: integer, minimum: -100000, maximum: 100000 }
+          maxItems: 1300
+          default: null
+          description: "Polar H10 ECG snippet voltages in microvolts @ `ecg_sample_rate_hz` (polar-ecg-integration; 10 s @ 130 Hz = 1300 samples). `null` on non-ECG rows. Both-or-neither with `ecg_sample_rate_hz`."
     Measurement:
       allOf:
         - $ref: "#/components/schemas/MeasurementBatch"

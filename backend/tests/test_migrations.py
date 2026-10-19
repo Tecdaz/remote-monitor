@@ -174,3 +174,59 @@ async def test_migrations_hr_status_column_round_trip(round_trip_db: None) -> No
         assert cols == []
     finally:
         await conn2.close()
+
+
+async def test_migrations_ecg_columns_round_trip(round_trip_db: None) -> None:
+    """polar-ecg-integration: the new ``ecg_uv`` / ``ecg_sample_rate_hz``
+    columns are added on upgrade and removed on downgrade. Mirrors the
+    hr_status round-trip test above.
+    """
+    import os
+
+    import asyncpg
+
+    _alembic("upgrade", "head")
+    dsn = os.environ.get(
+        "APP_DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/remote_monitor",
+    ).replace("postgresql+asyncpg", "postgresql")
+
+    pid = "00000000-0000-0000-0000-000000000020"
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(
+            "INSERT INTO clinical.patients (patient_id, is_active, bed_number) "
+            "VALUES ($1, true, 1)",
+            pid,
+        )
+        await conn.execute(
+            "INSERT INTO clinical.measurements "
+            "(id, patient_id, local_id, timestamp, received_at, "
+            "ecg_uv, ecg_sample_rate_hz) "
+            "VALUES ('00000000-0000-0000-0000-000000000022', $1, "
+            "'00000000-0000-0000-0000-000000000021', now(), now(), $2, 130)",
+            pid,
+            [100, 200, 300],
+        )
+        row = await conn.fetchrow(
+            "SELECT ecg_uv, ecg_sample_rate_hz FROM clinical.measurements "
+            "WHERE patient_id = $1",
+            pid,
+        )
+        assert row is not None
+        assert list(row["ecg_uv"]) == [100, 200, 300]
+        assert row["ecg_sample_rate_hz"] == 130
+    finally:
+        await conn.close()
+
+    _alembic("downgrade", "add_ecg_columns-1")
+    conn2 = await asyncpg.connect(dsn)
+    try:
+        cols = await conn2.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'clinical' AND table_name = 'measurements' "
+            "AND column_name IN ('ecg_uv', 'ecg_sample_rate_hz')"
+        )
+        assert cols == []
+    finally:
+        await conn2.close()

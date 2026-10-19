@@ -216,6 +216,9 @@ async def list_measurements(
             hr_status=row.hr_status,
             # polar-h10-validation: per-row source discriminator.
             source=row.source,
+            # polar-ecg-integration: ECG strip (None on vital rows).
+            ecg_uv=row.ecg_uv,
+            ecg_sample_rate_hz=row.ecg_sample_rate_hz,
         )
         for row in page
     ]
@@ -272,4 +275,7 @@ async def get_measurement(
         hr_status=row.hr_status,
         # polar-h10-validation: per-row source discriminator.
         source=row.source,
+        # polar-ecg-integration: ECG strip (None on vital rows).
+        ecg_uv=row.ecg_uv,
+        ecg_sample_rate_hz=row.ecg_sample_rate_hz,
     )

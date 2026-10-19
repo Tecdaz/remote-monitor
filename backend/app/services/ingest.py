@@ -261,6 +261,10 @@ async def upload_measurements(
                             # polar-h10-validation: per-row source
                             # discriminator (defaults to Samsung).
                             "source": item.source,
+                            # polar-ecg-integration: ECG validation
+                            # strip (or None on vital-sign rows).
+                            "ecg_uv": item.ecg_uv,
+                            "ecg_sample_rate_hz": item.ecg_sample_rate_hz,
                         }
                         for i, item in enumerate(valid_items)
                     ]
@@ -338,6 +342,14 @@ async def upload_measurements(
                 # polar-h10-validation: source discriminator so live
                 # clients can split validation streams.
                 "source": item.source,
+                # polar-ecg-integration: ECG strip so live clients
+                # can render it without polling the REST history.
+                "ecg_uv": (
+                    list(item.ecg_uv)
+                    if item.ecg_uv is not None
+                    else None
+                ),
+                "ecg_sample_rate_hz": item.ecg_sample_rate_hz,
             }
             try:
                 await manager.publish(

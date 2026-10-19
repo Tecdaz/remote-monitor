@@ -30,6 +30,14 @@ export interface Measurement {
    * 'samsung_watch' = Samsung SDK pipeline; 'polar_h10' = Polar H10 strap.
    */
   source: 'samsung_watch' | 'polar_h10';
+  /**
+   * Polar H10 ECG snippet voltages in microvolts @ `ecg_sample_rate_hz`
+   * (polar-ecg-integration; 10 s @ 130 Hz = 1300 samples).
+   * null on non-ECG rows.
+   */
+  ecg_uv: number[] | null;
+  /** Sample rate of `ecg_uv` in Hz (H10 ECG: 130). null on non-ECG rows. */
+  ecg_sample_rate_hz: number | null;
   received_at: string;
 }
 

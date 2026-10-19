@@ -42,7 +42,7 @@ export interface Patient { patient_id: string; patient_number: string; device_mo
 # openapi.yaml#/components/schemas/Measurement (allOf: MeasurementBatch + server-assigned fields)
 type: object
 required: [id, patient_id, local_id, timestamp, received_at]
-properties: { id: {type: string, format: uuid}, patient_id: {type: string, format: uuid}, local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, received_at: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}}, hr_status: {type: [integer, "null"], enum: [-999, -10, -8, -3, -2, 0, 1, null]}, source: {type: string, enum: [samsung_watch, polar_h10]} }
+properties: { id: {type: string, format: uuid}, patient_id: {type: string, format: uuid}, local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, received_at: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}}, hr_status: {type: [integer, "null"], enum: [-999, -10, -8, -3, -2, 0, 1, null]}, source: {type: string, enum: [samsung_watch, polar_h10]}, ecg_sample_rate_hz: {type: [integer, "null"], enum: [130, null]}, ecg_uv: {type: array, nullable: true, maxItems: 1300, items: {type: integer, minimum: -100000, maximum: 100000}}}
 ```
 ```python
 class Measurement(BaseModel):
@@ -56,12 +56,15 @@ class Measurement(BaseModel):
     hr_status: int | None = Field(None, description="Samsung HEART_RATE_STATUS per-reading lifecycle code.")
     # Measurement source (polar-h10-validation): samsung_watch | polar_h10.
     source: str = "samsung_watch"
+    # Polar H10 ECG snippet (polar-ecg-integration): 10 s @ 130 Hz, µV.
+    ecg_sample_rate_hz: int | None = None
+    ecg_uv: list[int] | None = None
 ```
 ```typescript
-export interface Measurement { id: string; patient_id: string; local_id: string; timestamp: string; received_at: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; hr_status: number | null; source: 'samsung_watch' | 'polar_h10'; }
+export interface Measurement { id: string; patient_id: string; local_id: string; timestamp: string; received_at: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; hr_status: number | null; source: 'samsung_watch' | 'polar_h10'; ecg_sample_rate_hz: number | null; ecg_uv: number[] | null; }
 ```
 ```kotlin
-@Serializable data class Measurement(val id: UUID, val patientId: UUID, val localId: UUID, val timestamp: Instant, val receivedAt: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null, val hrStatus: Int? = null, val source: String = "samsung_watch")
+@Serializable data class Measurement(val id: UUID, val patientId: UUID, val localId: UUID, val timestamp: Instant, val receivedAt: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null, val hrStatus: Int? = null, val source: String = "samsung_watch", val ecgSampleRateHz: Int? = null, val ecgUv: List<Int>? = null)
 ```
 
 ## MeasurementBatch
@@ -69,7 +72,7 @@ export interface Measurement { id: string; patient_id: string; local_id: string;
 # openapi.yaml#/components/schemas/MeasurementBatch
 type: object
 required: [local_id, timestamp]
-properties: { local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}}, hr_status: {type: [integer, "null"], enum: [-999, -10, -8, -3, -2, 0, 1, null]}, source: {type: string, enum: [samsung_watch, polar_h10]} }
+properties: { local_id: {type: string, format: uuid}, timestamp: {type: string, format: date-time}, heart_rate_bpm: {type: [integer, "null"], minimum: 1, maximum: 299}, spo2_percent: {type: [number, "null"], exclusiveMinimum: 0, maximum: 100}, ibis_ms: {type: array, nullable: true, items: {type: integer, minimum: 1, maximum: 5000}}, hr_status: {type: [integer, "null"], enum: [-999, -10, -8, -3, -2, 0, 1, null]}, source: {type: string, enum: [samsung_watch, polar_h10]}, ecg_sample_rate_hz: {type: [integer, "null"], enum: [130, null]}, ecg_uv: {type: array, nullable: true, maxItems: 1300, items: {type: integer, minimum: -100000, maximum: 100000}}}
 ```
 ```python
 class MeasurementBatch(BaseModel):
@@ -82,12 +85,15 @@ class MeasurementBatch(BaseModel):
     hr_status: int | None = Field(None, description="Samsung HEART_RATE_STATUS per-reading lifecycle code.")
     # Measurement source (polar-h10-validation): samsung_watch | polar_h10.
     source: str = "samsung_watch"
+    # Polar H10 ECG snippet (polar-ecg-integration): 10 s @ 130 Hz, µV.
+    ecg_sample_rate_hz: int | None = None
+    ecg_uv: list[int] | None = None
 ```
 ```typescript
-export interface MeasurementBatch { local_id: string; timestamp: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; hr_status: number | null; source: 'samsung_watch' | 'polar_h10'; }
+export interface MeasurementBatch { local_id: string; timestamp: string; heart_rate_bpm: number | null; spo2_percent: number | null; ibis_ms: number[] | null; hr_status: number | null; source: 'samsung_watch' | 'polar_h10'; ecg_sample_rate_hz: number | null; ecg_uv: number[] | null; }
 ```
 ```kotlin
-@Serializable data class MeasurementBatch(val localId: UUID, val timestamp: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null, val hrStatus: Int? = null, val source: String = "samsung_watch")
+@Serializable data class MeasurementBatch(val localId: UUID, val timestamp: Instant, val heartRateBpm: Int? = null, val spo2Percent: Double? = null, val ibisMs: List<Long>? = null, val hrStatus: Int? = null, val source: String = "samsung_watch", val ecgSampleRateHz: Int? = null, val ecgUv: List<Int>? = null)
 ```
 
 ## BatchResponse

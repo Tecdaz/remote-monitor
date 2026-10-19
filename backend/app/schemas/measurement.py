@@ -94,6 +94,24 @@ class MeasurementBatch(BaseModel):
         ),
     )
 
+    # polar-ecg-integration: Polar H10 ECG snippet — 10 s @ 130 Hz =
+    # 1300 voltages in µV. `None` on every non-ECG row. Rows carrying
+    # ECG have `heart_rate_bpm = None` and `source = 'polar_h10'`;
+    # they are validation strips, not vital signs. The rate is
+    # declared first so the `ecg_uv` validator below can read it from
+    # `info.data` (Pydantic validates fields in definition order).
+    ecg_sample_rate_hz: int | None = Field(
+        default=None,
+        description="Sample rate of `ecg_uv` in Hz (H10 ECG: 130).",
+    )
+    ecg_uv: list[int] | None = Field(
+        default=None,
+        description=(
+            "Polar H10 ECG snippet voltages in microvolts "
+            "(@ `ecg_sample_rate_hz`). `None` on non-ECG rows."
+        ),
+    )
+
     @field_validator("ibis_ms")
     @classmethod
     def _clamp_ibis(cls, v: list[int] | None) -> list[int] | None:
@@ -153,6 +171,38 @@ class MeasurementBatch(BaseModel):
                 "source value "
                 f"{v!r} not in {{'samsung_watch', 'polar_h10'}}"
             )
+        return v
+
+    @field_validator("ecg_sample_rate_hz")
+    @classmethod
+    def _validate_ecg_rate(cls, v: int | None, info) -> int | None:
+        # polar-ecg-integration: the H10 ECG streams at 130 Hz; the
+        # rate travels with the strip so future rates fail loudly
+        # instead of silently rescaling the time axis.
+        if v is None:
+            return v
+        if v != 130:
+            raise ValueError(f"ecg_sample_rate_hz value {v} not in {{130}}")
+        return v
+
+    @field_validator("ecg_uv")
+    @classmethod
+    def _validate_ecg_uv(cls, v: list[int] | None, info) -> list[int] | None:
+        # polar-ecg-integration: one 10 s @ 130 Hz snippet = 1300 µV
+        # samples. An ECG row must carry its rate alongside; a
+        # rate without voltages (or vice versa) is rejected so a
+        # half-written strip can never look like a vital sign.
+        if v is None:
+            if info.data.get("ecg_sample_rate_hz") is not None:
+                raise ValueError("ecg_sample_rate_hz without ecg_uv")
+            return v
+        if info.data.get("ecg_sample_rate_hz") is None:
+            raise ValueError("ecg_uv without ecg_sample_rate_hz")
+        if not (1 <= len(v) <= 1300):
+            raise ValueError(f"ecg_uv length {len(v)} out of [1, 1300]")
+        for x in v:
+            if not (-100_000 <= x <= 100_000):
+                raise ValueError(f"ecg_uv value {x} out of [-100000, 100000]")
         return v
 
 

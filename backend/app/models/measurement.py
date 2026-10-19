@@ -85,3 +85,14 @@ class ClinicalMeasurement(Base):
         default="samsung_watch",
         server_default="samsung_watch",
     )
+    # polar-ecg-integration: Polar H10 ECG snippet — 10 s @ 130 Hz =
+    # 1300 voltages in µV. Stored as `integer[]`. NULL on every
+    # non-ECG row. Rows carrying ECG have `heart_rate_bpm = NULL` and
+    # `source = 'polar_h10'`; they are validation strips, not vitals.
+    ecg_uv: Mapped[list[int] | None] = mapped_column(
+        ARRAY(Integer), nullable=True
+    )
+    # Sample rate of `ecg_uv` in Hz (H10 ECG streams at 130 Hz).
+    ecg_sample_rate_hz: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )

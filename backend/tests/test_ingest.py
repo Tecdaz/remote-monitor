@@ -578,6 +578,78 @@ class TestIngestService:
         assert list(row.ibis_ms) == [800, 820, 900]
         assert list(row.ibis_status) == [0, 0, 0]
 
+    # --- polar-ecg-integration T3: ecg strip persistence + validation ----
+
+    async def test_upload_persists_ecg_strip_to_clinical_measurements(
+        self, session: AsyncSession
+    ) -> None:
+        """T3: a batch with a 10 s ECG strip stores voltages + rate."""
+        path_pid = uuid4()
+        local_id = uuid4()
+        item = _valid_item(local_id)
+        item["heart_rate_bpm"] = None
+        item["source"] = "polar_h10"
+        item["ecg_sample_rate_hz"] = 130
+        item["ecg_uv"] = [100 + (i % 50) for i in range(1300)]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="1",
+            raw_items=[item],
+        )
+        assert response.accepted_ids == [local_id]
+        assert response.rejected == []
+
+        await session.commit()
+        async with session.bind.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT ecg_uv, ecg_sample_rate_hz, heart_rate_bpm, source "
+                    "FROM clinical.measurements "
+                    "WHERE patient_id = :pid AND local_id = :lid"
+                ),
+                {"pid": path_pid, "lid": local_id},
+            )
+            row = result.one_or_none()
+        assert row is not None, "row not found in clinical.measurements"
+        assert len(list(row.ecg_uv)) == 1300
+        assert row.ecg_sample_rate_hz == 130
+        assert row.heart_rate_bpm is None
+        assert row.source == "polar_h10"
+
+    async def test_upload_rejects_ecg_without_sample_rate(
+        self, session: AsyncSession
+    ) -> None:
+        """T3: ecg_uv without ecg_sample_rate_hz is rejected (both-or-neither)."""
+        path_pid = uuid4()
+        item = _valid_item()
+        item["ecg_uv"] = [100, 200, 300]
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="1",
+            raw_items=[item],
+        )
+        assert response.accepted_ids == []
+        assert len(response.rejected) == 1
+
+    async def test_upload_rejects_oversized_ecg_strip(
+        self, session: AsyncSession
+    ) -> None:
+        """T3: more than 1300 ECG samples is rejected."""
+        path_pid = uuid4()
+        item = _valid_item()
+        item["ecg_sample_rate_hz"] = 130
+        item["ecg_uv"] = [0] * 1301
+        response = await upload_measurements(
+            session,
+            path_patient_id=path_pid,
+            patient_number="1",
+            raw_items=[item],
+        )
+        assert response.accepted_ids == []
+        assert len(response.rejected) == 1
+
     async def test_upload_accepts_mixed_noisy_ibis_beats(
         self, session: AsyncSession
     ) -> None:
