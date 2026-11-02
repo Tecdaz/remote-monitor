@@ -2,23 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Health Services: heart rate (BPM) collection. SpO2 uses Samsung SDK. -->
-    <uses-permission android:name="android.permission.BODY_SENSORS" />
-    <!-- Android 16 granular health permissions (Health Connect). The
-         Samsung SDK requires these granular permissions on Android 16+;
-         BODY_SENSORS alone triggers PERMISSION_ERROR on HEART_RATE_CONTINUOUS.
-         Runtime grant is required — the system shows a dialog at first
-         sensor request (codelab step 10.1). -->
-    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
-    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
-
-    <!-- T2 polar-h10-validation: BLE GATT for the Polar H10 strap
-         (standard HRS 0x180D, no SDK). SCAN+CONNECT on API 31+;
-         FINE_LOCATION is the API-30 scan gate (fleet SM-R870).
-         neverForLocation: we filter by the configured device ID only
-         and never derive physical location, so scans return results
-         even with the watch Location toggle off (its off state was
-         silently suppressing every scan result). -->
+    <!-- The only measurement device is the Polar H10 band, reached over
+         BLE. The same APK runs on Wear OS watches, Android phones and
+         Android tablets, so the watch hardware feature is NOT required. -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
@@ -29,27 +15,25 @@
         android:maxSdkVersion="30" />
     <uses-feature
         android:name="android.hardware.bluetooth_le"
-        android:required="false" />
+        android:required="true" />
 
-    <!-- Network: HTTPS batch uploads to backend. -->
+    <!-- Network: HTTPS batch uploads to the backend. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- ForegroundService: persistent sync loop. FOREGROUND_SERVICE_HEALTH is the
-         Wear OS 5+ type for health-data FGSs; required on API 34+. -->
+    <!-- ForegroundService: keeps the BLE link + sync loop alive.
+         `connectedDevice` is the Android 14+ type for external BLE
+         devices. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Notifications (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Wear OS device feature. -->
+    <!-- Wear OS is one supported host, not a requirement. -->
     <uses-feature
         android:name="android.hardware.type.watch"
-        android:required="true" />
-    <uses-feature
-        android:name="android.hardware.sensor.heartrate"
         android:required="false" />
 
     <application
@@ -59,27 +43,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.Watch"
         android:allowBackup="false"
+        android:resizeableActivity="true"
         android:supportsRtl="true">
-
-        <uses-library
-            android:name="com.google.android.wearable"
-            android:required="true" />
-        <uses-library
-            android:name="wear-sdk"
-            android:required="false" />
-
-        <!--
-             Set to true if your app is Standalone, that is, it does not require the handheld
-             app to run.
-        -->
-        <meta-data
-            android:name="com.google.android.wearable.standalone"
-            android:value="true" />
 
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
-            android:taskAffinity=""
             android:theme="@style/MainActivityTheme.Starting">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -88,13 +57,10 @@
             </intent-filter>
         </activity>
 
-        <!-- SyncForegroundService: placeholder for PR 1. Real implementation
-             lands in PR 2 (T-WATCH-30). Declared here so the manifest is valid
-             and the service is recognized by the system. -->
         <service
             android:name=".sync.SyncForegroundService"
             android:exported="false"
-            android:foregroundServiceType="health" />
+            android:foregroundServiceType="connectedDevice" />
 
     </application>
 

@@ -95,9 +95,9 @@ class BatchUploadWorker(
         } catch (e: HttpException) {
             // 4xx or 5xx — do NOT delete anything; rows remain in Room.
             // Operators need visibility: log the HTTP status and the
-            // (truncated) response body so a stuck upload — e.g. backend
-            // 422 on `ibis_status` length mismatch, auth failure, or
-            // 5xx — is diagnosable from logcat without re-running.
+            // (truncated) response body so a stuck upload — e.g. a
+            // backend 422 on a malformed band payload, auth failure,
+            // or 5xx — is diagnosable from logcat without re-running.
             val body = runCatching { e.response()?.errorBody()?.string() }
                 .getOrNull()
                 ?.take(500)

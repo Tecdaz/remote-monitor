@@ -40,6 +40,8 @@ import com.remotemonitor.watch.BuildConfig
 import com.remotemonitor.watch.WatchApplication
 import com.remotemonitor.watch.sensor.PolarPermissions
 import com.remotemonitor.watch.sync.SyncForegroundService
+import com.remotemonitor.watch.ui.mobile.MobileApp
+import com.remotemonitor.watch.ui.theme.MobileTheme
 import com.remotemonitor.watch.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -57,18 +59,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // REQ-WATCH-BG-03: keep the screen on so the Samsung Health SDK
-        // continues delivering HR data. Without this flag, the watch
-        // enters TaskAmbiactive after a few seconds of inactivity and
-        // the SDK stops emitting silently — the idle-timeout /
-        // reconnect loop keeps the flow alive but data only flows when
-        // the screen wakes back up.
+        // Keep the screen on while the app is the active collector. The
+        // BLE link is owned by the foreground service, but a bedside
+        // phone/tablet (and a watch) benefits from an always-on vitals
+        // surface during a monitoring session.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val app = application as WatchApplication
-        // polar-h10-validation follow-up: ask for the BLE runtime
-        // permissions only when a Polar strap is configured
-        // (`-PpolarDeviceId`). Samsung-only builds (the default) see
-        // zero behavior change — no dialog is ever shown.
+        // Ask for the BLE runtime permissions only when a Polar strap
+        // is configured (`-PpolarDeviceId`, default "Polar H10"). An
+        // empty filter disables collection and shows no dialog.
         val polarConfigured = BuildConfig.POLAR_DEVICE_ID.isNotEmpty()
         Log.i(TAG, "polar strap configured: $polarConfigured")
         if (polarConfigured) {
@@ -101,8 +100,14 @@ class MainActivity : ComponentActivity() {
         // in `SyncForegroundService.kt`); no `onDispose` is needed —
         // recompositions must not restart the loop.
         setContent {
-            MyApplicationTheme {
-                WatchApp(app = app)
+            if (isWatchDevice(this)) {
+                MyApplicationTheme {
+                    WatchApp(app = app)
+                }
+            } else {
+                MobileTheme {
+                    MobileApp(app = app)
+                }
             }
         }
     }

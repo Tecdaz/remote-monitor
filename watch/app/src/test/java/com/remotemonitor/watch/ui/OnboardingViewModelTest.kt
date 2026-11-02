@@ -95,7 +95,7 @@ class OnboardingViewModelTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns testSnapshot
         coEvery { api.registerPatient(any(), any()) } returns
@@ -120,7 +120,7 @@ class OnboardingViewModelTest {
                 "3",
                 RegisterPatientRequest(
                     bedNumber = 3,
-                    deviceModel = "samsung SM-R870",
+                    deviceModel = "Google Pixel 8",
                     osVersion = "16 (API 36)",
                     replaceActiveSession = false,
                 ),
@@ -158,7 +158,7 @@ class OnboardingViewModelTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns testSnapshot
         coEvery { api.registerPatient(any(), any()) } throws java.io.IOException("Backend unreachable")
@@ -195,7 +195,7 @@ class OnboardingViewModelTest {
         val identity = mockk<IdentityRepository>()
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns testSnapshot
         coEvery { api.registerPatient(any(), any()) } returns
@@ -246,7 +246,7 @@ class OnboardingViewModelTest {
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
         // getBedSnapshot SUSPENDS so the snapshot fetch is still in flight.
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } coAnswers { kotlinx.coroutines.awaitCancellation() }
 
@@ -266,7 +266,7 @@ class OnboardingViewModelTest {
         val identity = mockk<IdentityRepository>()
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns testSnapshot
         // Block the first POST so the second tap arrives during Submitting.
@@ -305,7 +305,7 @@ class OnboardingViewModelTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns occupiedSnapshot
 
@@ -326,7 +326,7 @@ class OnboardingViewModelTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns occupiedSnapshot
         coEvery { api.registerPatient(any(), any()) } returns
@@ -353,7 +353,7 @@ class OnboardingViewModelTest {
                 "3",
                 RegisterPatientRequest(
                     bedNumber = 3,
-                    deviceModel = "samsung SM-R870",
+                    deviceModel = "Google Pixel 8",
                     osVersion = "16 (API 36)",
                     replaceActiveSession = true,
                 ),
@@ -368,7 +368,7 @@ class OnboardingViewModelTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns occupiedSnapshot
 
@@ -395,7 +395,7 @@ class OnboardingViewModelTest {
         val identity = mockk<IdentityRepository>(relaxed = true)
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns testSnapshot
         coEvery { api.registerPatient(any(), any()) } returns
@@ -451,7 +451,7 @@ class OnboardingViewModelTest {
 
         val api = mockk<MeasurementsApi>()
         val deviceInfo = mockk<DeviceInfoProvider>()
-        coEvery { deviceInfo.deviceModel() } returns "samsung SM-R870"
+        coEvery { deviceInfo.deviceModel() } returns "Google Pixel 8"
         coEvery { deviceInfo.osVersion() } returns "16 (API 36)"
         coEvery { api.getBedSnapshot() } returns testSnapshot
 

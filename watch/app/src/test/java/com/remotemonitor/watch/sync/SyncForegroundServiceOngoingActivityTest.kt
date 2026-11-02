@@ -50,9 +50,8 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
  * `onCreate` → `onStartCommand` → `onDestroy` lifecycle is not
  * possible in a Robolectric JVM test because the FGS also launches
  * the 5-second [startSyncLoop] coroutine which depends on the
- * Samsung Health Sensor SDK (a non-JVM system service) and the
- * real Retrofit-backed API client — both of which fail in
- * Robolectric and trigger the `runCatching` fallback. The
+ * real Retrofit-backed API client — it fails in Robolectric and
+ * triggers the `runCatching` fallback. The
  * reflection-driven approach isolates the OA guard semantics from
  * the sync loop machinery, which is what the spec #448 cap 5
  * acceptance criteria actually require.

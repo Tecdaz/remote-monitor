@@ -1,72 +1,81 @@
-# watch
+# Android collector app
 
-Wear OS 6 patient monitor. The watch app collects heart rate and
-blood-oxygen measurements, stores them locally, and uploads them in
-batches to the backend.
+Android application that reads the **Polar H10 band** over BLE and uploads
+batches to the backend. The same APK runs on Wear OS watches, Android
+phones and Android tablets; the host device only provides BLE, network and
+UI. It does **not** read the watch's own sensors.
 
-## Target
+## Targets
 
-- Platform: Wear OS 6 (API 36)
-- Reference device: Samsung Galaxy Watch 4
+- Platform: Android API 33+ (Polar BLE SDK 8.4.0 floor)
+- Hosts: Wear OS watch, Android phone, Android tablet
 - Language: Kotlin
-- UI: Compose for Wear OS
+- UI: Compose for Wear OS on watch hosts; Material 3 adaptive screens on
+  phones/tablets
+- Measurement device: Polar H10 (`POLAR_DEVICE_ID`, default `"Polar H10"`)
 
-## Sensor stack
+## Data collected
 
-- Health Services for heart rate (BPM) and SpO2 collection
-- Room for local measurement storage
-- HTTPS batch uploads to the backend
+| Signal | Source | Cadence |
+|---|---|---|
+| BPM + RR (`heart_rate_bpm`, `ibis_ms`) | GATT Heart Rate Service | ~1 Hz |
+| ECG (`ecg_uv`, `ecg_sample_rate_hz`) | Polar BLE SDK | 1 strip/s (10 s window) |
 
-## Critical invariant — `delete-after-echo`
+The Samsung watch fields (`spo2_percent`, `ibis_status`, `hr_status`,
+`source`) and the Samsung Health Sensor SDK dependency were removed.
 
-The watch only deletes a Room row after the backend acknowledges the
-upload with a 2xx response that echoes the IDs back. If the backend is
-down, measurements accumulate in Room and the watch retries with
-backoff. This is the highest-risk correctness boundary in the system;
-it is the first test contract to land in the spec for this component.
+## Local storage
 
-## Android toolchain status
+Room (v9) stores pending uploads. **Presence-in-table = pending upload**.
+The app deletes a row only after the backend returns a 2xx whose
+`accepted_ids` echoes its `local_id` (`delete-after-echo`). If the backend
+is down, rows accumulate and the foreground service retries with backoff.
 
-The host running this build has the Android toolchain installed
-(JDK 21 + AGP 9.2.1 + Gradle 9.6.1). The `watch/` folder builds with
-`./gradlew :app:assembleDebug` and runs `./gradlew :app:testDebugUnitTest`
-as the unit-test gate.
+## Android toolchain
+
+The host has JDK 21 + AGP 9.2.1 + Gradle 9.6.1. Build and test from
+`watch/`:
+
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
+```
+
+Useful build flags:
+
+```bash
+# Backend URL baked into the APK
+./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.42:8000/
+
+# Band filter (default: "Polar H10")
+./gradlew :app:assembleDebug -PpolarDeviceId=H10_ABC123
+```
+
+## Manifest/permissions
+
+- BLE: `BLUETOOTH_SCAN` (neverForLocation) + `BLUETOOTH_CONNECT`
+- Foreground service: `FOREGROUND_SERVICE_CONNECTED_DEVICE`
+- Notifications: `POST_NOTIFICATIONS`
+- `android.hardware.type.watch` is optional; `android.hardware.bluetooth_le`
+  is required.
+- No `BODY_SENSORS` / `health.READ_*` permissions: the app does not read
+  watch sensors.
 
 ## Known HIPAA gaps
 
-The following are documented gaps in the current PoC build. None block
-the CI merge gate, but each is a follow-up that must close before
-this app handles production PHI.
+These are documented gaps in the PoC build. None block the unit-test gate,
+but each must close before handling production PHI.
 
-| Gap | REQ | Mitigation status | Follow-up |
-|-----|-----|-------------------|-----------|
-| **Plaintext DataStore** — `IdentityRepository` persists the operator-typed patient number and the backend-issued patient UUID in DataStore Preferences without encryption. A device that is rooted, lost, or backed up to a non-encrypted cloud leaks both fields. | REQ-WATCH-20 | Open | Wire `EncryptedSharedPreferences` or a `Tink`-backed `DataStore<Preferences>`; add a `MasterKey` rotated at first launch and on operator logout. |
-| **Silent retention on reject** — the `BatchUploadWorker` accepts a 2xx with `rejected: [{local_id, reason}]` and keeps the rejected row in Room. The home screen never surfaces the rejection, so a malformed measurement is silently retained until the operator clears it. | REQ-WATCH-05 S05.2 | Open | Add a "Rejected uploads" tile in the home screen that lists the latest N rows; provide a one-tap "Discard" action that deletes the row from Room. |
-| **Samsung SDK lock-in** — the SpO2 sensor path is implemented against the Samsung Health Sensor SDK (`com.samsung.android.service.health.tracking`). On non-Samsung watches (or Samsung watches without the proprietary service), `NullSpO2Provider` substitutes null SpO2 readings. | REQ-WATCH-02, 03 | Open | Add a Qualcomm / generic SpO2 sensor path; gate SpO2 features by an OEM allow-list rather than silently degrading. |
-| **5-second sync cadence** — the foreground service polls the Room queue every 5 seconds. On a Wear OS 6 device, this keeps the radio warm and draws measurable battery; it is PoC-acceptable, not production-acceptable. | REQ-WATCH-07 | Open | Switch to a WorkManager `PeriodicWorkRequest` (15-min minimum on Wear OS), with on-demand triggers when the Room count changes. |
-| **Placeholder Samsung AAR** — `watch/libs/samsung-health-tracking.aar` is committed as a stub (the real binary is not public on Maven). `implementation(files("libs/samsung-health-tracking.aar"))` in `app/build.gradle.kts` is intentionally commented out. | REQ-WATCH-12 | Manual | The real AAR must be downloaded from https://developer.samsung.com/health/sensor and dropped in at the same path; the SHA-256 must be recorded in `watch/libs/README.md`. The version catalog entry stays group:artifact only. |
-
-## Pinned tokens
-
-The following strings appear on their own line so the scaffold's
-acceptance grep can verify them literally.
-
-Wear OS 6
-API 36
-Health Services
-Room
-delete-after-echo
-Kotlin
-Compose for Wear OS
-Galaxy Watch 4
-HIPAA
-Plaintext DataStore
-Samsung SDK
+| Gap | Mitigation status | Follow-up |
+|---|---|---|
+| **Plaintext DataStore** — the identity repository persists the bed number and backend patient UUID without encryption. | Open | Wire `EncryptedSharedPreferences` or a Tink-backed `DataStore`; rotate the key at first launch and on operator logout. |
+| **Silent retention on reject** — the upload worker keeps a 2xx-rejected row in Room and the UI does not surface it. | Open | Add a "Rejected uploads" tile with a discard action. |
+| **Foreground sync cadence** — 1 s polling keeps the radio warm. | Open | Move to a change-triggered upload while keeping the `delete-after-echo` invariant. |
+| **Device filter is build-time** — a single `POLAR_DEVICE_ID` per APK. | Open | Add an in-app band picker for multi-band sites. |
 
 ## Follow-up
 
-- HIPAA gap closure: see the table above.
-- AGP 9.x escape-hatch (`android.builtInKotlin=false`,
-  `android.newDsl=false`, explicit `kotlin-android` plugin) must be
-  removed before AGP 10.0 removes the flags. KSP 2.3.9 does not yet
-  support `android.sourceSets` natively on AGP 9.x.
+- The AGP 9.x escape hatch (`android.builtInKotlin=false`,
+  `android.newDsl=false`, explicit `kotlin-android` plugin) must be removed
+  before AGP 10 removes the flags.
+- Room schema exports live in `app/schemas/`; commit every new version.

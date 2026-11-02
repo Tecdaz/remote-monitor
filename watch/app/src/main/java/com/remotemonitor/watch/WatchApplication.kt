@@ -14,10 +14,7 @@ import com.remotemonitor.watch.sensor.EcgSnippetProvider
 import com.remotemonitor.watch.sensor.HeartRateSensor
 import com.remotemonitor.watch.sensor.PolarEcgProvider
 import com.remotemonitor.watch.sensor.PolarHrsProvider
-import com.remotemonitor.watch.sensor.SamsungHeartRateProvider
-import com.remotemonitor.watch.sensor.SamsungSpO2Provider
 import com.remotemonitor.watch.sensor.SensorOrchestrator
-import com.remotemonitor.watch.sensor.SpO2Provider
 import com.remotemonitor.watch.sync.BatchUploadWorker
 import com.remotemonitor.watch.sync.SyncForegroundService
 import com.remotemonitor.watch.ui.HomeViewModel
@@ -27,95 +24,51 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 /**
- * Wear OS application entry point + manual ServiceLocator (T-WATCH-40,
- * REQ-WATCH-04). The merge-gate test (`BatchUploadWorkerTest`) mocks
- * all dependencies directly, so this ServiceLocator is not exercised by
- * tests. It's the production wiring for [SyncForegroundService] and the
- * Compose UI.
+ * Android application entry point + manual ServiceLocator.
  *
- * Architecture: the [identityRepository], [measurementDao], and
- * [measurementsApi] are constructed lazily on first access. The
+ * The same APK runs on Wear OS watches, Android phones and Android
+ * tablets. The measurement device is always the Polar H10 band; the
+ * host device only bridges BLE and uploads batches.
+ *
  * [applicationScope] is a `SupervisorJob`-backed scope used by the
  * ViewModels; it is cancelled in [onTerminate] (best-effort — Android
  * doesn't always call this on real devices).
- *
- * [syncForegroundServiceClass] is a class reference so the manifest
- * service can be started from `MainActivity` without coupling to its
- * constructor.
- *
- * [onboardingViewModelFactory] / [homeViewModelFactory] are returned
- * as factory lambdas because the ViewModels are not Android ViewModels
- * (they don't need the `viewModelScope` machinery for a PoC — the
- * shared [applicationScope] is enough).
- *
- * **Lifecycle (REQ-WATCH-66, fix-watch-orchestrator-start)**: the
- * [sensorOrchestrator] is started from [onCreate] against the
- * [applicationScope]. This is the CALLING SITE that was missing in
- * `feat-watch-samsung-spo2` (see `sdd/feat-watch-samsung-spo2/verify-report`
- * #340 §"E2E status" and the 6th deviation in apply-progress #335). The
- * orchestrator is constructed lazily but [SensorOrchestrator.start] is
- * idempotent, so a second call (e.g. after a process restart) is a
- * no-op.
  */
 class WatchApplication : Application() {
 
-    // --- Application-scoped coroutine scope -----------------------------
-
-    /**
-     * The shared [CoroutineScope] used by the ViewModels and any
-     * long-lived coroutines that aren't tied to a screen or service.
-     */
+    /** Shared scope for ViewModels and long-lived collection loops. */
     val applicationScope: CoroutineScope by lazy {
         CoroutineScope(Dispatchers.Default + SupervisorJob())
     }
 
     // --- Sensors ---------------------------------------------------------
 
-    // REQ-WATCH-12 / REQ-WATCH-68: wire the real Samsung SDK-backed
-    // SpO2 provider. `NullSpO2Provider` is RETAINED in the source set
-    // (per the SpO2Provider KDoc) as the non-Samsung fallback, but no
-    // longer instantiated here. On a non-Samsung device, the
-    // SamsungSpO2Provider.read() will return null cleanly (via
-    // onConnectionFailed / timeout) and the orchestrator will insert
-    // rows with spo2Percent = null.
-    val spO2Provider: SpO2Provider by lazy { SamsungSpO2Provider(this) }
-    // REQ-WATCH-HR-IBI-01..09 (feat-watch-samsung-hr-ibi): wire the
-    // Samsung SDK-backed HR provider. The previous
-    // HealthServicesHeartRateSensor (Jetpack `androidx.health.services.client`)
-    // is REMOVED from the wiring because the Samsung SDK is the only
-    // tracker in our fleet (SM-R870) AND the only path that exposes
-    // IBI_LIST for HRV computation. The `heart-services-client`
-    // Gradle dependency is left in place for now (REQ-WATCH-HR-IBI-15
-    // out-of-scope marker — removal is a follow-up cycle).
-    val heartRateSensor: HeartRateSensor by lazy { SamsungHeartRateProvider(this) }
-
-    // T2 polar-h10-validation: optional Polar H10 GATT provider.
-    // Empty POLAR_DEVICE_ID (default) = Polar disabled, Samsung-only.
-    // Set per validation run with -PpolarDeviceId=H10_XXXX.
+    /**
+     * Polar H10 GATT Heart Rate Service provider (BPM + RR).
+     * `POLAR_DEVICE_ID` defaults to `"Polar H10"`; an explicit
+     * `-PpolarDeviceId=...` overrides the filter. An empty value
+     * disables collection (useful for UI-only builds).
+     */
     val polarHeartRateSensor: HeartRateSensor? by lazy {
-        BuildConfig.POLAR_DEVICE_ID.takeIf { it.isNotEmpty() }?.let {
-            PolarHrsProvider(this, it)
-        }
+        BuildConfig.POLAR_DEVICE_ID
+            .takeIf { it.isNotEmpty() }
+            ?.let { PolarHrsProvider(this, it) }
     }
 
-    // T2 polar-ecg-integration: Polar SDK ECG snippet provider. Same
-    // gate as the GATT HR provider (needs a configured strap). Shares
-    // the strap's second BLE slot with the GATT provider; the H10
-    // allows 2 centrals and both clients run on this watch.
+    /**
+     * Polar BLE SDK ECG snippet provider (10 s @ 130 Hz). Same gate as
+     * the GATT provider because both need a configured strap.
+     */
     val polarEcgProvider: EcgSnippetProvider? by lazy {
-        BuildConfig.POLAR_DEVICE_ID.takeIf { it.isNotEmpty() }?.let {
-            PolarEcgProvider(this, it)
-        }
+        BuildConfig.POLAR_DEVICE_ID
+            .takeIf { it.isNotEmpty() }
+            ?.let { PolarEcgProvider(this, it) }
     }
 
     val sensorOrchestrator: SensorOrchestrator by lazy {
         SensorOrchestrator(
-            heartRateSensor = heartRateSensor,
-            spO2Provider = spO2Provider,
-            dao = measurementDao,
             polarSensor = polarHeartRateSensor,
-            // T6 band-only: -PpolarOnly=true pauses Samsung; Polar owns health.
-            samsungEnabled = !BuildConfig.POLAR_ONLY,
+            dao = measurementDao,
             ecgProvider = polarEcgProvider,
         )
     }
@@ -128,25 +81,18 @@ class WatchApplication : Application() {
     // --- Persistence ----------------------------------------------------
 
     /**
-     * The Room database is the single source of truth for pending
-     * uploads (T-WATCH-18). It is built lazily on first access; the
-     * on-disk file lives in the app's no-backup directory.
+     * Room database for pending uploads. The on-disk file lives in the
+     * app's no-backup directory.
      */
     val database: AppDatabase by lazy {
         Room.databaseBuilder(this, AppDatabase::class.java, "measurements.db")
-            // REQ-NOISE-WATCH-03: real migration preserves pending rows when
-            // adding `ibis_status`. Destructive fallback remains as a safety
-            // net for unforeseen future schema mismatches, not for this bump.
             .addMigrations(AppDatabase.MIGRATION_4_5)
-            // feat-watch-hr-status-surface: real migration preserves pending
-            // rows when adding `hr_status`. Same rationale as 4_5.
             .addMigrations(AppDatabase.MIGRATION_5_6)
-            // T2 polar-h10-validation: real migration preserves pending
-            // rows when adding the `source` discriminator.
             .addMigrations(AppDatabase.MIGRATION_6_7)
-            // polar-ecg-integration T2: real migration preserves pending
-            // rows when adding the `ecg_uv` / `ecg_sample_rate_hz` columns.
             .addMigrations(AppDatabase.MIGRATION_7_8)
+            // Band-only schema: rebuilds the table without the Samsung
+            // watch sensor columns and preserves pending band rows.
+            .addMigrations(AppDatabase.MIGRATION_8_9)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }
@@ -156,12 +102,6 @@ class WatchApplication : Application() {
 
     // --- API client -----------------------------------------------------
 
-    /**
-     * The Retrofit-backed API client (T-WATCH-22). Built lazily on first
-     * access; the OkHttp + Retrofit graph is created once per process.
-     * `BuildConfig.API_BASE_URL` is set per build type (debug / release)
-     * in `app/build.gradle.kts`.
-     */
     val measurementsApi: MeasurementsApi by lazy {
         ApiClient.create(
             baseUrl = BuildConfig.API_BASE_URL,
@@ -169,7 +109,7 @@ class WatchApplication : Application() {
         )
     }
 
-    // --- Sync worker (merge-gate class) ---------------------------------
+    // --- Sync worker ----------------------------------------------------
 
     val batchUploadWorker: BatchUploadWorker by lazy {
         BatchUploadWorker(
@@ -183,19 +123,13 @@ class WatchApplication : Application() {
     // --- Foreground service --------------------------------------------
 
     /**
-     * Class reference for [SyncForegroundService]. Used by `MainActivity`
-     * to start the sync loop after the operator completes onboarding
-     * (PoC: we start it as soon as the home screen appears).
+     * Class reference for [SyncForegroundService]. Used by the UI to
+     * start the sync loop after the operator completes onboarding.
      */
     val syncForegroundServiceClass: Class<SyncForegroundService> = SyncForegroundService::class.java
 
     // --- ViewModel factories -------------------------------------------
 
-    /**
-     * Factory for [OnboardingViewModel]. Returns a new instance per call
-     * (no Android `ViewModel` machinery; the activity is responsible for
-     * the lifecycle).
-     */
     val onboardingViewModelFactory: () -> OnboardingViewModel = {
         OnboardingViewModel(
             identity = identityRepository,
@@ -205,12 +139,6 @@ class WatchApplication : Application() {
         )
     }
 
-    /**
-     * Factory for [HomeViewModel]. Returns a new instance per call. The
-     * HR pipeline health (wear-ui-guidelines D6) is sourced from the
-     * shared [sensorOrchestrator] so the home vitals Flow can suppress
-     * the HR readout when the sensor has failed.
-     */
     val homeViewModelFactory: () -> HomeViewModel = {
         HomeViewModel(
             identity = identityRepository,
@@ -222,11 +150,8 @@ class WatchApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // REQ-WATCH-66 (fix-watch-orchestrator-start): kick off the
-        // sensor collection loop. Without this call, the orchestrator
-        // is constructed (lazy) but never activated, and
-        // clinical.measurements stays empty. Idempotent: safe to call
-        // multiple times across process restarts.
+        // Start the band collection loop. Idempotent across process
+        // restarts.
         sensorOrchestrator.start(applicationScope)
     }
 

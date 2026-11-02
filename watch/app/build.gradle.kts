@@ -35,17 +35,14 @@ android {
             val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?)
                 ?: "http://10.0.2.2:8000/"
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
-            // T2 polar-h10-validation: Polar H10 device-id filter for the
-            // GATT provider. Empty = Polar disabled (Samsung-only).
-            // Override per validation run:
+            // Polar H10 device-id filter for the GATT + ECG providers.
+            // Defaults to the strap name so the app works without build
+            // flags; override with:
             //   ./gradlew :app:assembleDebug -PpolarDeviceId=H10_ABC123
-            val polarDeviceId = (project.findProperty("polarDeviceId") as String?) ?: ""
+            // Empty = collection disabled (UI-only build).
+            val polarDeviceId =
+                (project.findProperty("polarDeviceId") as String?) ?: "Polar H10"
             buildConfigField("String", "POLAR_DEVICE_ID", "\"$polarDeviceId\"")
-            // T6 polar-ecg-integration (band-only): pause the Samsung
-            // pipeline so only the strap is measured.
-            //   ./gradlew :app:assembleDebug -PpolarDeviceId="Polar H10" -PpolarOnly=true
-            val polarOnly = (project.findProperty("polarOnly") as String?)?.toBoolean() ?: false
-            buildConfigField("Boolean", "POLAR_ONLY", "$polarOnly")
         }
         release {
             isMinifyEnabled = false
@@ -55,10 +52,9 @@ android {
             val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?)
                 ?: "https://api.example.com/"
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
-            val polarDeviceId = (project.findProperty("polarDeviceId") as String?) ?: ""
+            val polarDeviceId =
+                (project.findProperty("polarDeviceId") as String?) ?: "Polar H10"
             buildConfigField("String", "POLAR_DEVICE_ID", "\"$polarDeviceId\"")
-            val polarOnly = (project.findProperty("polarOnly") as String?)?.toBoolean() ?: false
-            buildConfigField("Boolean", "POLAR_ONLY", "$polarOnly")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -69,7 +65,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    useLibrary("wear-sdk")
     buildFeatures {
         compose = true
         // T-WATCH-22: BuildConfig.API_BASE_URL is consumed by ApiClient.
@@ -111,7 +106,6 @@ android {
 }
 
 dependencies {
-    implementation(libs.play.services.wearable)
     implementation(platform(libs.compose.bom))
     implementation(libs.ui)
     implementation(libs.ui.graphics)
@@ -124,28 +118,9 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.core.splashscreen)
 
-    // Samsung Health Sensor SDK AAR (REQ-WATCH-12).
-    // The AAR is committed at watch/app/libs/samsung-health-sensor-api-1.4.1.aar
-    // (SHA-256 893cd5d6..., 61 KB). Downloaded manually from
-    // https://developer.samsung.com/health/sensor and pinned here for
-    // reproducibility — no network fetch at build time. See
-    // watch/app/libs/README.md for the install / upgrade steps and the
-    // version table.
-    //
-    // The AAR is loaded via a `flatDir` repository declared in
-    // settings.gradle.kts so the test compile classpath picks up the
-    // SDK types (`HealthTrackingService`, `ConnectionListener`, etc.)
-    // that the SamsungSpO2Provider unit tests reference. Using
-    // `implementation(files(...))` alone works for the main compile
-    // classpath but does not propagate to the test compile classpath
-    // in AGP 9.x.
-    implementation("com.samsung.android.service.health:samsung-health-sensor-api:1.4.1@aar")
-    testImplementation("com.samsung.android.service.health:samsung-health-sensor-api:1.4.1@aar")
-
-    // Sync + data layer (T-WATCH-17..24 production code; Room + KSP added in T-WATCH-18)
+    // Sync + data layer.
     implementation(libs.datastore.preferences)
     implementation(libs.polar.ble.sdk)
-    implementation(libs.health.services.client)
     implementation(libs.retrofit)
     implementation(libs.converter.moshi)
     implementation(libs.okhttp)

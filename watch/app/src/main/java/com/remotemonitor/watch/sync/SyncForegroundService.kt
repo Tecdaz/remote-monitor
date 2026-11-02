@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -63,9 +64,11 @@ import kotlinx.coroutines.launch
  * `Notification.Builder` — so the FGS builder is migrated to the
  * AndroidX variant in PR-4 commit 3.
  *
- * FGS hard constraints (unchanged by PR-4): `foregroundServiceType =
- * "health"`, channel id = `sync`, `exported = false` in
- * AndroidManifest.xml.
+ * FGS hard constraints: `foregroundServiceType = "connectedDevice"`
+ * (the service keeps the BLE link and uploads its data), channel id =
+ * `sync`, `exported = false` in AndroidManifest.xml. OngoingActivity is
+ * only published on Wear OS hosts; phones/tablets keep the plain FGS
+ * notification.
  *
  * Wiring: the [BatchUploadWorker] is provided by [WatchApplication.worker]
  * (ServiceLocator pattern). Identity, device info, and DAO are all
@@ -100,7 +103,7 @@ class SyncForegroundService : Service() {
         scope.launch {
             val bedNumber = currentBedNumber()
             startForeground(NOTIFICATION_ID, buildNotification(persistentlyShown = true, bedNumber = bedNumber))
-            publishOngoingActivity(bedNumber)
+            if (isWatchDevice()) publishOngoingActivity(bedNumber)
         }
         startSyncLoop()
     }
@@ -110,7 +113,7 @@ class SyncForegroundService : Service() {
         // `ongoingPublished` guard short-circuits when the OA is
         // already live, so this is a no-op for the common path.
         scope.launch {
-            if (!ongoingPublished) {
+            if (!ongoingPublished && isWatchDevice()) {
                 val bedNumber = currentBedNumber()
                 publishOngoingActivity(bedNumber)
             }
@@ -173,6 +176,14 @@ class SyncForegroundService : Service() {
         val app = applicationContext as WatchApplication
         return app.identityRepository.getBedNumber()
     }
+
+    /**
+     * True only on a Wear OS host. The same APK runs on phones and
+     * tablets, where the Wear OngoingActivity registry is absent and
+     * publishing would only log a failure.
+     */
+    private fun isWatchDevice(): Boolean =
+        packageManager.hasSystemFeature(PackageManager.FEATURE_WATCH)
 
     /**
      * Builds the FGS notification. wear-ui-guidelines D5 (spec
@@ -287,7 +298,7 @@ class SyncForegroundService : Service() {
             "Sync",
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Persistent notification while the watch is syncing measurements"
+            description = "Persistent notification while the band data is syncing"
             setShowBadge(false)
         }
         nm.createNotificationChannel(channel)

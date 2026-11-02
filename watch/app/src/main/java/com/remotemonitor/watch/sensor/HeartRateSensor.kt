@@ -3,25 +3,19 @@ package com.remotemonitor.watch.sensor
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Heart rate sensor source (REQ-WATCH-01).
+ * Heart-rate source backed by the Polar H10 band.
  *
- * Implementation lives in [SamsungHeartRateProvider], which wraps the
- * Samsung Health Sensor SDK's `HEART_RATE_CONTINUOUS` tracker (AAR
- * v1.4.1). The previous Health-Services-backed
- * `HealthServicesHeartRateSensor` was REMOVED in the
- * `feat-watch-samsung-hr-ibi` cycle (REQ-WATCH-HR-IBI-15) — the
- * Samsung SDK is the only path that exposes IBI for HRV
- * computation, and the project fleet is Samsung-only.
- *
- * The sensor is abstracted behind an interface so the
- * [SensorOrchestrator] can be unit-tested with a fake.
+ * The production implementation is [PolarHrsProvider] (standard BLE
+ * Heart Rate Service, GATT 0x180D). The interface keeps the
+ * [SensorOrchestrator] unit-testable with a fake.
  */
 interface HeartRateSensor {
     /**
      * Continuous flow of BPM readings.
      *
-     * - Emits a reading each time the sensor produces a new BPM value.
-     * - Emits `null` when the watch is off-wrist (no BPM measurable).
+     * - Emits a reading each time the band produces a new BPM value.
+     * - Emits `null` when no sample is available (link retry,
+     *   off-body, or a malformed notification).
      * - Never throws; failures are mapped to `null` and emitted.
      */
     val readings: Flow<HeartRateReading?>
@@ -30,28 +24,12 @@ interface HeartRateSensor {
 /**
  * Single BPM reading at a point in time.
  *
- * [ibis] and [ibisStatus] are added by the `feat-watch-samsung-hr-ibi`
- * cycle (REQ-WATCH-HR-IBI-07) to carry inter-beat-interval data from
- * the Samsung `HEART_RATE_CONTINUOUS` tracker. Both are defaulted to
- * `null` at the END of the parameter list so existing call sites
- * (`SensorOrchestratorTest`, etc.) keep compiling without changes.
- *
- * [hrStatus] is added by the `feat-watch-hr-status-surface` cycle to
- * carry the Samsung `HEART_RATE_STATUS` per-reading lifecycle code.
- * Documented values (Samsung API Reference `ValueKey.HeartRateSet.html`):
- *   `1`  = successful HR measurement
- *   `0`  = initial state, OR a higher-priority sensor (e.g. BIA) operating
- *  `-2`  = wearable movement detected
- *  `-3`  = wearable detached (off-wrist)
- *  `-8`  = PPG signal weak / user moved
- *  `-10` = PPG signal too weak / too much motion
- *  `-999`= a higher-priority sensor (e.g. BIA) operating
- * `null` when the SDK did not provide a status for this batch.
+ * [ibis] carries the RR intervals (milliseconds) that the H10 includes
+ * in the same Heart Rate Measurement notification. It is `null` when the
+ * band did not provide RR data for this notification.
  */
 data class HeartRateReading(
     val beatsPerMinute: Int,
     val timestampMillis: Long,
     val ibis: List<Long>? = null,
-    val ibisStatus: List<Int>? = null,
-    val hrStatus: Int? = null,
 )

@@ -4,53 +4,25 @@ import com.remotemonitor.watch.data.MeasurementEntity
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Wire-shape test for [MeasurementEntity] (T-FIX-03, REQ-WATCH-52).
+ * Wire-shape test for [MeasurementEntity] (band-only contract).
  *
- * Pins the contract invariants the upload body must satisfy:
- *  - snake_case wire keys (`local_id`, `heart_rate_bpm`,
- *    `spo2_percent`).
- *  - ISO 8601 `Z`-suffixed string for the `timestamp` field (NOT a
- *    raw epoch `Long` number — the backend's Pydantic `datetime`
- *    would reject the raw number with `extra="forbid"` and a type
- *    error).
- *  - nullable vital-sign fields are honored at the Kotlin layer
- *    (the field type is `Double?` and the value is null).
- *
- * The production Moshi is the one [ApiClient.create] uses, so this
- * test is a live check against the same configuration the device
- * ships.
- *
- * **Known Moshi 1.15.1 limitation (documented)**: the REQ-WATCH-52
- * scenario example says `"spo2_percent":null` in the body, but
- * Moshi's `KotlinJsonAdapter` (the reflection-based adapter
- * registered via `KotlinJsonAdapterFactory`) OMITS null primitive
- * fields rather than writing `null`. The backend's
- * `MeasurementBatch.spo2_percent: float | None = Field(None, ...)`
- * accepts both forms — explicit `null` and omitted — under
- * `extra="forbid"`. The contract intent ("vital-sign fields SHALL
- * remain nullable") is satisfied: the Kotlin field is nullable, the
- * backend parses either form. Enforcing the literal `"spo2_percent":null`
- * would require either (a) a per-class `@ToJson` adapter that
- * toggles `JsonWriter.setSerializeNulls(true)` (the Moshi README's
- * `TournamentWithNullsAdapter` pattern) or (b) switching to
- * `moshi-kotlin-codegen` with a generated adapter that respects
- * `serializeNulls()`. Both are out of scope for this change; the
- * follow-up is tracked as a separate concern in engram #319 (R1).
+ * Pins the invariants the upload body must satisfy:
+ *  - snake_case wire keys (`local_id`, `heart_rate_bpm`, `ibis_ms`,
+ *    `ecg_uv`, `ecg_sample_rate_hz`),
+ *  - ISO 8601 `Z`-suffixed string for `timestamp`,
+ *  - nullable band fields are honored,
+ *  - removed watch fields never leak onto the wire.
  */
 class MeasurementSerializationTest {
 
     private val moshi: Moshi = Moshi.Builder()
-        // Same registration order as ApiClient.create() (T-FIX-02):
-        // 1. field-scoped adapter (must be added first so the
-        //    AdapterMethodsFactory is consulted before the reflection
-        //    factory asks for a `Long` adapter with the qualifier)
-        // 2. KotlinJsonAdapterFactory for the data-class reflection.
         .add(Iso8601TimestampAdapter())
         .add(KotlinJsonAdapterFactory())
         .build()
@@ -61,100 +33,46 @@ class MeasurementSerializationTest {
             localId = "L1",
             timestamp = 1_719_760_272_000L,
             heartRateBpm = 72,
-            spo2Percent = null,
         )
 
-        val adapter = moshi.adapter(MeasurementEntity::class.java)
-        val json = adapter.toJson(entity)
-        assertNotNull("adapter produced no JSON", json)
-
-        // Snake_case wire keys.
+        val json = moshi.adapter(MeasurementEntity::class.java).toJson(entity)
+        assertTrue("body must use 'local_id', got: $json", json.contains("\"local_id\":\"L1\""))
         assertTrue(
-            "body must use 'local_id' (snake_case), got: $json",
-            json.contains("\"local_id\":\"L1\""),
-        )
-        assertTrue(
-            "body must use 'heart_rate_bpm' (snake_case), got: $json",
+            "body must use 'heart_rate_bpm', got: $json",
             json.contains("\"heart_rate_bpm\":72"),
         )
-        // spo2_percent is nullable; Moshi 1.15.1's KotlinJsonAdapter
-        // omits it when null (see class KDoc). Both omission and
-        // explicit null are spec-valid per the backend's
-        // `int | None = Field(None, ...)` schema.
-        assertTrue(
-            "body must honor spo2_percent (either as null or omitted), got: $json",
-            json.contains("\"spo2_percent\":null") || !json.contains("\"spo2_percent\""),
-        )
-
-        // ISO 8601 timestamp with Z suffix (NOT a raw Long number).
         val tsRegex = Regex("\"timestamp\":\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z\"")
+        assertTrue("body must serialize timestamp as ISO 8601 Z", tsRegex.containsMatchIn(json))
         assertTrue(
-            "body must serialize timestamp as ISO 8601 with 'Z' suffix, got: $json",
-            tsRegex.containsMatchIn(json),
-        )
-
-        // The exact ISO 8601 value for 1_719_760_272_000L is
-        // "2024-06-30T15:11:12Z" (UTC by definition of Instant).
-        assertTrue(
-            "body must contain the exact ISO 8601 instant for the test epoch, got: $json",
+            "body must contain the exact epoch instant",
             json.contains("\"timestamp\":\"2024-06-30T15:11:12Z\""),
         )
+        assertFalse("body must not leak camelCase localId", json.contains("\"localId\""))
+        assertFalse("body must not leak camelCase heartRateBpm", json.contains("\"heartRateBpm\""))
     }
 
     @Test
-    fun measurement_body_does_not_leak_camelcase_or_raw_long_timestamp() {
-        // Negative-shape guard: even with correct snake_case keys,
-        // the body must NOT also contain the camelCase variants or a
-        // raw-number timestamp. This is the regression guard for R1
-        // in engram #319.
+    fun removed_watch_fields_never_leak_onto_the_wire() {
         val entity = MeasurementEntity(
             localId = "L2",
             timestamp = 1_700_000_000_000L,
             heartRateBpm = 80,
-            spo2Percent = 97.0,
+            ibisMs = listOf(800L, 820L),
         )
 
         val json = moshi.adapter(MeasurementEntity::class.java).toJson(entity)
-        assertEquals(
-            "body must not contain camelCase 'localId'",
-            false,
-            json.contains("\"localId\""),
-        )
-        assertEquals(
-            "body must not contain camelCase 'heartRateBpm'",
-            false,
-            json.contains("\"heartRateBpm\""),
-        )
-        assertEquals(
-            "body must not contain camelCase 'spo2Percent'",
-            false,
-            json.contains("\"spo2Percent\""),
-        )
-        // A raw-number timestamp would be "timestamp":1700000000000.
-        // The field type is Long so a number is technically valid JSON,
-        // but the contract requires a string. The string is required
-        // because the field is annotated with @Iso8601Timestamp.
-        assertEquals(
-            "body must not serialize timestamp as a raw number, got: $json",
-            false,
-            Regex("\"timestamp\":\\d+(\\.\\d+)?[^Z\"]").containsMatchIn(json),
-        )
-        // The non-null vital signs must be present and correctly
-        // typed.
-        assertTrue("body must contain heart_rate_bpm=80, got: $json", json.contains("\"heart_rate_bpm\":80"))
-        assertTrue("body must contain spo2_percent=97.0, got: $json", json.contains("\"spo2_percent\":97.0"))
+        assertFalse("spo2_percent must not exist", json.contains("spo2"))
+        assertFalse("ibis_status must not exist", json.contains("ibis_status"))
+        assertFalse("hr_status must not exist", json.contains("hr_status"))
+        assertFalse("source must not exist", json.contains("\"source\""))
     }
 
-    /**
-     * Raw IBI array round-trips through Moshi as JSON int array.
-     */
     @Test
     fun ibis_ms_array_round_trips_through_moshi() {
         val original = MeasurementEntity(
             localId = "L-IBI-1",
             timestamp = 1_719_760_272_000L,
             heartRateBpm = 72,
-            spo2Percent = null,
             ibisMs = listOf(800L, 820L, 790L),
         )
 
@@ -164,14 +82,9 @@ class MeasurementSerializationTest {
             "body must serialize ibis_ms as JSON int array, got: $json",
             json.contains("\"ibis_ms\":[800,820,790]"),
         )
-
         val parsed = adapter.fromJson(json)
-        assertNotNull("deserialized row must not be null", parsed)
-        assertEquals(
-            "ibisMs must round-trip through Moshi",
-            listOf(800L, 820L, 790L),
-            parsed!!.ibisMs,
-        )
+        assertNotNull(parsed)
+        assertEquals(listOf(800L, 820L, 790L), parsed!!.ibisMs)
     }
 
     @Test
@@ -180,97 +93,16 @@ class MeasurementSerializationTest {
             localId = "L-IBI-2",
             timestamp = 1_719_760_272_000L,
             heartRateBpm = 72,
-            spo2Percent = null,
             ibisMs = null,
         )
 
         val json = moshi.adapter(MeasurementEntity::class.java).toJson(original)
         assertTrue(
-            "body must either omit ibis_ms or write it as null, got: $json",
+            "body must omit or null ibis_ms, got: $json",
             !json.contains("\"ibis_ms\":") || json.contains("\"ibis_ms\":null"),
         )
     }
 
-    /**
-     * REQ-NOISE-WATCH-02 + WATCH-04: `ibis_status` round-trips through Moshi
-     * as a JSON int array and keeps the same element order.
-     */
-    @Test
-    fun ibis_status_array_round_trips_through_moshi() {
-        val original = MeasurementEntity(
-            localId = "L-STATUS-1",
-            timestamp = 1_719_760_272_000L,
-            heartRateBpm = 72,
-            spo2Percent = null,
-            ibisMs = listOf(800L, 820L, 900L),
-            ibisStatus = listOf(1, 0, 1),
-        )
-
-        val adapter = moshi.adapter(MeasurementEntity::class.java)
-        val json = adapter.toJson(original)
-        assertTrue(
-            "body must serialize ibis_status as JSON int array, got: $json",
-            json.contains("\"ibis_status\":[1,0,1]"),
-        )
-
-        val parsed = adapter.fromJson(json)
-        assertNotNull("deserialized row must not be null", parsed)
-        assertEquals(
-            "ibisStatus must round-trip through Moshi",
-            listOf(1, 0, 1),
-            parsed!!.ibisStatus,
-        )
-        assertEquals(listOf(800L, 820L, 900L), parsed.ibisMs)
-    }
-
-    /**
-     * REQ-NOISE-WATCH-04: `ibis_status = null` is either omitted or written
-     * as explicit null on the wire.
-     */
-    @Test
-    fun null_ibis_status_round_trips_as_omitted_or_explicit_null() {
-        val original = MeasurementEntity(
-            localId = "L-STATUS-2",
-            timestamp = 1_719_760_272_000L,
-            heartRateBpm = 72,
-            spo2Percent = null,
-            ibisMs = listOf(800L, 820L),
-            ibisStatus = null,
-        )
-
-        val json = moshi.adapter(MeasurementEntity::class.java).toJson(original)
-        assertTrue(
-            "body must either omit ibis_status or write it as null, got: $json",
-            !json.contains("\"ibis_status\":") || json.contains("\"ibis_status\":null"),
-        )
-    }
-
-    /**
-     * REQ-NOISE-WATCH-04: an explicit JSON `null` for `ibis_status` parses
-     * back to a Kotlin null.
-     */
-    @Test
-    fun explicit_null_ibis_status_deserializes_to_null() {
-        val json = """
-            {
-              "local_id":"L-STATUS-3",
-              "timestamp":"2024-06-30T15:11:12Z",
-              "heart_rate_bpm":72,
-              "ibis_ms":[800,820],
-              "ibis_status":null
-            }
-        """.trimIndent()
-
-        val parsed = moshi.adapter(MeasurementEntity::class.java).fromJson(json)
-        assertNotNull(parsed)
-        assertNull(parsed!!.ibisStatus)
-    }
-
-    /**
-     * T2 polar-ecg-integration: `ecg_uv` + `ecg_sample_rate_hz`
-     * round-trip through Moshi as a JSON int array + int, using
-     * snake_case wire keys.
-     */
     @Test
     fun ecg_snippet_round_trips_through_moshi() {
         val voltages = List(1300) { it - 650 }
@@ -278,8 +110,6 @@ class MeasurementSerializationTest {
             localId = "L-ECG-1",
             timestamp = 1_719_760_272_000L,
             heartRateBpm = null,
-            spo2Percent = null,
-            source = MeasurementEntity.SOURCE_POLAR,
             ecgUv = voltages,
             ecgSampleRateHz = 130,
         )
@@ -291,12 +121,11 @@ class MeasurementSerializationTest {
             json.contains("\"ecg_sample_rate_hz\":130"),
         )
         assertTrue(
-            "body must serialize ecg_uv as JSON int array, got: ${json.take(120)}",
+            "body must serialize ecg_uv as JSON int array",
             json.contains("\"ecg_uv\":["),
         )
-
         val parsed = adapter.fromJson(json)
-        assertNotNull("deserialized row must not be null", parsed)
+        assertNotNull(parsed)
         assertEquals(voltages, parsed!!.ecgUv)
         assertEquals(130, parsed.ecgSampleRateHz)
         assertNull(parsed.heartRateBpm)
@@ -308,14 +137,13 @@ class MeasurementSerializationTest {
             localId = "L-ECG-2",
             timestamp = 1_719_760_272_000L,
             heartRateBpm = 72,
-            spo2Percent = null,
             ecgUv = null,
             ecgSampleRateHz = null,
         )
 
         val json = moshi.adapter(MeasurementEntity::class.java).toJson(original)
         assertTrue(
-            "HR rows must either omit ecg_uv or write it as null, got: ${json.take(200)}",
+            "HR rows must omit or null ecg_uv, got: $json",
             !json.contains("\"ecg_uv\":") || json.contains("\"ecg_uv\":null"),
         )
     }

@@ -4,7 +4,7 @@ package com.remotemonitor.watch.sensor
  * T1 polar-ecg-integration: pure chunker for Polar H10 ECG snippets.
  *
  * The H10 streams ECG at 130 Hz in µV (PolarH10.md). For validation
- * against Samsung we persist 10 s snippets (1300 samples) anchored to
+ * for storage we persist 10 s snippets (1300 samples) anchored to
  * the watch clock — small enough to survive Room/POST/WS, large enough
  * for HRV ground truth. Pure Kotlin (no Android/SDK APIs) so unit
  * tests run on the JVM.

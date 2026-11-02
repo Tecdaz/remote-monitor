@@ -6,89 +6,96 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
- * Room database for the watch's local measurement store
- * (REQ-WATCH-06, T-WATCH-18).
+ * Room database for the Android collector's local measurement store.
  *
  * - Single entity: [MeasurementEntity] (table `measurements`).
- * - Version 5 — added `ibis_status` JSON text column for per-beat quality
- *   flags (REQ-NOISE-WATCH-03). Real [MIGRATION_4_5] preserves pending rows;
- *   [fallbackToDestructiveMigration] in [com.remotemonitor.watch.WatchApplication]
- *   is a safety net only.
- * - Version 6 — added `hr_status` INTEGER NULL column for the Samsung
- *   `HEART_RATE_STATUS` per-reading lifecycle code (feat-watch-hr-status-
- *   surface). Real [MIGRATION_5_6] preserves pending rows.
- * - Version 7 — added `source` TEXT NOT NULL DEFAULT 'samsung_watch'
- *   discriminator (polar-h10-validation T2). Real [MIGRATION_6_7]
- *   backfills pre-T2 rows as Samsung.
- * - Version 8 — added nullable `ecg_uv` (JSON int array, µV) +
- *   `ecg_sample_rate_hz` INTEGER for Polar H10 ECG snippets
- *   (polar-ecg-integration T2). Real [MIGRATION_7_8] preserves
- *   pending rows; non-ECG rows keep both columns NULL.
- * - Schema is exported to `app/schemas/` by the Room compiler
- *   (KSP arg `room.schemaLocation` in `app/build.gradle.kts`).
+ * - Version 5 — added `ibis_status` (removed again in v9).
+ * - Version 6 — added `hr_status` (removed again in v9).
+ * - Version 7 — added `source` (removed again in v9).
+ * - Version 8 — added nullable `ecg_uv` + `ecg_sample_rate_hz` for the
+ *   Polar H10 ECG snippets.
+ * - Version 9 — band-only schema: removes `spo2_percent`, `ibis_status`,
+ *   `hr_status` and `source`; preserves pending band rows.
  *
- * The DAO is exposed as `abstract fun measurementDao()` so Room can
- * generate the implementation. In production, the database is created
- * by [com.remotemonitor.watch.WatchApplication] via `Room.databaseBuilder`
- * and the generated DAO is wired into the ServiceLocator. The merge-gate
- * test (`BatchUploadWorkerTest`) mocks [MeasurementDao] directly via
- * MockK, so the generated Room implementation is not exercised by tests
- * — it is exercised on-device by `SensorOrchestrator`.
+ * The older migrations stay in place so an installed v8 APK upgrades
+ * cleanly. [MIGRATION_8_9] recreates the table because SQLite `DROP
+ * COLUMN` is not available on every supported Android release.
+ *
+ * Schema is exported to `app/schemas/` by the Room compiler
+ * (KSP arg `room.schemaLocation` in `app/build.gradle.kts`).
  */
 @Database(
     entities = [MeasurementEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun measurementDao(): MeasurementDao
 
     companion object {
-        /**
-         * REQ-NOISE-WATCH-03: explicit migration from v4 to v5 adds the
-         * `ibis_status` column as a JSON text column. Room stores the
-         * `List<Int>?` field via [IbiStatusConverter] as `TEXT`, mirroring
-         * the historical `ibis_ms` column type.
-         */
+        /** v4 -> v5: add the (now removed) `ibis_status` column. */
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE measurements ADD COLUMN ibis_status TEXT")
             }
         }
 
-        /**
-         * feat-watch-hr-status-surface: explicit migration from v5 to v6
-         * adds the `hr_status` INTEGER NULL column for the Samsung
-         * `HEART_RATE_STATUS` per-reading lifecycle code. SQLite stores
-         * it as a nullable plain integer (no converter required).
-         */
+        /** v5 -> v6: add the (now removed) `hr_status` column. */
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE measurements ADD COLUMN hr_status INTEGER")
             }
         }
 
-        /**
-         * polar-h10-validation T2: explicit migration from v6 to v7
-         * adds the `source` TEXT discriminator. NOT NULL with a
-         * Samsung default so pending pre-T2 rows backfill cleanly.
-         */
+        /** v6 -> v7: add the (now removed) `source` discriminator. */
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE measurements ADD COLUMN source TEXT NOT NULL DEFAULT 'samsung_watch'")
             }
         }
 
-        /**
-         * polar-ecg-integration T2: explicit migration from v7 to v8
-         * adds nullable `ecg_uv` (JSON int array, µV @ sample rate) and
-         * `ecg_sample_rate_hz` INTEGER for Polar H10 ECG snippets.
-         * Pending non-ECG rows keep both columns NULL.
-         */
+        /** v7 -> v8: add the Polar H10 ECG snippet columns. */
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE measurements ADD COLUMN ecg_uv TEXT")
                 db.execSQL("ALTER TABLE measurements ADD COLUMN ecg_sample_rate_hz INTEGER")
+            }
+        }
+
+        /**
+         * v8 -> v9 (band-only): rebuild the table without the Samsung
+         * watch sensor columns. Pending band rows survive the copy;
+         * the removed columns are discarded.
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `measurements_new` (
+                        `local_id` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `heart_rate_bpm` INTEGER,
+                        `ibis_ms` TEXT,
+                        `ecg_uv` TEXT,
+                        `ecg_sample_rate_hz` INTEGER,
+                        PRIMARY KEY(`local_id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `measurements_new`
+                        (`local_id`, `timestamp`, `heart_rate_bpm`, `ibis_ms`, `ecg_uv`, `ecg_sample_rate_hz`)
+                    SELECT
+                        `local_id`, `timestamp`, `heart_rate_bpm`, `ibis_ms`, `ecg_uv`, `ecg_sample_rate_hz`
+                    FROM `measurements`
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE `measurements`")
+                db.execSQL("ALTER TABLE `measurements_new` RENAME TO `measurements`")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_measurements_timestamp` ON `measurements` (`timestamp`)",
+                )
             }
         }
     }

@@ -4,11 +4,11 @@ import androidx.room.TypeConverter
 import org.json.JSONArray
 
 /**
- * Room [TypeConverter] for `List<Long>?` ↔ JSON string column.
+ * Room [TypeConverter] for `List<Long>?` <-> JSON string column.
  *
- * The `ibis_ms` column holds the raw IBI list from the Samsung sensor,
+ * The `ibis_ms` column holds the raw RR intervals from the Polar H10,
  * persisted as a JSON array string in Room. On the wire, Moshi serializes
- * `List<Long>` as a JSON int array — same shape, no extra adapter needed.
+ * `List<Long>` as a JSON int array, the same shape the backend expects.
  */
 class IbiListConverter {
 
@@ -25,22 +25,20 @@ class IbiListConverter {
 }
 
 /**
- * Room [TypeConverter] for `List<Int>?` ↔ JSON string column.
+ * Room [TypeConverter] for `List<Int>?` <-> JSON string column.
  *
- * The `ibis_status` column holds the per-beat quality flags from the Samsung
- * sensor's `IBI_STATUS_LIST` (SDK >= 1.2.0). `0` = normal/valid beat;
- * `-1` = error/invalid beat (Samsung may introduce additional codes
- * later). The list is persisted as a JSON array string in Room and
- * serialized on the wire as a JSON int array by Moshi.
+ * The `ecg_uv` column holds a Polar H10 ECG snippet (10 s at 130 Hz,
+ * voltages in microvolts), persisted as a JSON array string in Room and
+ * serialized as a JSON int array by Moshi.
  */
-class IbiStatusConverter {
+class EcgListConverter {
 
     @TypeConverter
-    fun fromIbiStatus(value: List<Int>?): String? =
+    fun fromEcgList(value: List<Int>?): String? =
         value?.let { JSONArray(it).toString() }
 
     @TypeConverter
-    fun toIbiStatus(value: String?): List<Int>? =
+    fun toEcgList(value: String?): List<Int>? =
         value?.let { raw ->
             val arr = JSONArray(raw)
             (0 until arr.length()).map { arr.getInt(it) }

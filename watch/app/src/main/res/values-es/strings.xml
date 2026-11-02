@@ -12,6 +12,12 @@
     without clinical review.
 -->
 <resources>
+    <string name="band_subtitle">Banda Polar H10</string>
+    <string name="sensor_connected">Banda conectada</string>
+    <string name="sensor_off_wrist">Banda sin contacto</string>
+    <string name="sensor_failed">Sin conexión con la banda</string>
+    <string name="home_sync_label">Subiendo al monitor clínico</string>
+
     <string name="onboarding_title">Selección de cama</string>
     <string name="onboarding_section_label">Selecciona la cama para este dispositivo</string>
     <string name="bed_free">Libre</string>

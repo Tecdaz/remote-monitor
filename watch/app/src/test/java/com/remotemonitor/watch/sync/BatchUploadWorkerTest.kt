@@ -235,8 +235,8 @@ class BatchUploadWorkerTest {
         coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72))
         coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
-        every { deviceInfo.deviceModel() } returns "Samsung Galaxy Watch 4"
-        every { deviceInfo.osVersion() } returns "Wear OS 6 (API 36)"
+        every { deviceInfo.deviceModel() } returns "Google Pixel 8"
+        every { deviceInfo.osVersion() } returns "16 (API 36)"
         every { deviceInfo.isFirstUpload() } returns true
 
         server.enqueue(ok("""{"accepted_ids":["$l1"],"rejected":[]}"""))
@@ -252,8 +252,8 @@ class BatchUploadWorkerTest {
         // now the BED PLAINTEXT, NOT the legacy "P-00042"-style
         // operator-typed number. Verifies the silent D22 swap.
         assertEquals("3", recorded.getHeader("X-Patient-Number"))
-        assertEquals("Samsung Galaxy Watch 4", recorded.getHeader("X-Device-Model"))
-        assertEquals("Wear OS 6 (API 36)", recorded.getHeader("X-OS-Version"))
+        assertEquals("Google Pixel 8", recorded.getHeader("X-Device-Model"))
+        assertEquals("16 (API 36)", recorded.getHeader("X-OS-Version"))
 
         // T-FIX-07 (REQ-WATCH-55): body-shape regression guard. The
         // previous version of S05.7 only inspected headers, so a
@@ -271,9 +271,11 @@ class BatchUploadWorkerTest {
             body.contains("\"heart_rate_bpm\":72"),
         )
         assertTrue(
-            "body must use 'spo2_percent' (snake_case) or omit it (Moshi 1.15.1 omits null primitives), got: $body",
-            body.contains("\"spo2_percent\"") ||
-                !body.contains("spo2"),
+            "body must not carry the removed watch fields, got: $body",
+            !body.contains("spo2") &&
+                !body.contains("ibis_status") &&
+                !body.contains("hr_status") &&
+                !body.contains("\"source\""),
         )
         // ISO 8601 timestamp with Z suffix — NOT a raw Long number.
         val tsRegex = Regex("\"timestamp\":\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z\"")
@@ -289,8 +291,8 @@ class BatchUploadWorkerTest {
         coEvery { dao.selectPending(1000) } returns listOf(entity(l1, 72))
         coEvery { identity.getBedNumber() } returns "3"
         coEvery { identity.getPatientId() } returns "uuid-1"
-        every { deviceInfo.deviceModel() } returns "Samsung Galaxy Watch 4"
-        every { deviceInfo.osVersion() } returns "Wear OS 6 (API 36)"
+        every { deviceInfo.deviceModel() } returns "Google Pixel 8"
+        every { deviceInfo.osVersion() } returns "16 (API 36)"
         every { deviceInfo.isFirstUpload() } returns false
 
         server.enqueue(ok("""{"accepted_ids":["$l1"],"rejected":[]}"""))
@@ -307,7 +309,7 @@ class BatchUploadWorkerTest {
     // --- helpers --------------------------------------------------------
 
     private fun entity(localId: String, bpm: Int) =
-        MeasurementEntity(localId, timestamp = System.currentTimeMillis(), heartRateBpm = bpm, spo2Percent = null)
+        MeasurementEntity(localId, timestamp = System.currentTimeMillis(), heartRateBpm = bpm)
 
     /**
      * Raw IBI array: the POST body must serialize ibis_ms as a JSON int array.
@@ -320,7 +322,6 @@ class BatchUploadWorkerTest {
                 localId = l1,
                 timestamp = 1_719_760_272_000L,
                 heartRateBpm = 72,
-                spo2Percent = null,
                 ibisMs = listOf(800L, 820L),
             )
         )
@@ -338,44 +339,6 @@ class BatchUploadWorkerTest {
         assertTrue(
             "body must contain \"ibis_ms\":[800,820], got: $body",
             body.contains("\"ibis_ms\":[800,820]"),
-        )
-    }
-
-    /**
-     * REQ-NOISE-WATCH-02 + WATCH-04: the POST body must serialize
-     * `ibis_status` as a JSON int array alongside `ibis_ms`.
-     */
-    @Test
-    fun `S05_9 ibis_status serialized alongside ibis_ms`() = runTest {
-        val l1 = UUID.randomUUID().toString()
-        coEvery { dao.selectPending(1000) } returns listOf(
-            MeasurementEntity(
-                localId = l1,
-                timestamp = 1_719_760_272_000L,
-                heartRateBpm = 72,
-                spo2Percent = null,
-                ibisMs = listOf(800L, 820L, 900L),
-                ibisStatus = listOf(1, 0, 1),
-            )
-        )
-        coEvery { identity.getBedNumber() } returns "3"
-        coEvery { identity.getPatientId() } returns "uuid-1"
-        every { deviceInfo.isFirstUpload() } returns false
-
-        server.enqueue(ok("""{"accepted_ids":["$l1"],"rejected":[]}"""))
-
-        worker.runOnce()
-
-        val recorded = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
-            ?: error("Expected exactly one HTTP request; got 0")
-        val body = recorded.body.readUtf8()
-        assertTrue(
-            "body must contain \"ibis_ms\":[800,820,900], got: $body",
-            body.contains("\"ibis_ms\":[800,820,900]"),
-        )
-        assertTrue(
-            "body must contain \"ibis_status\":[1,0,1], got: $body",
-            body.contains("\"ibis_status\":[1,0,1]"),
         )
     }
 

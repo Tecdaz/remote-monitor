@@ -7,14 +7,15 @@ import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * T2 polar-ecg-integration: ECG snippets persist as their own
- * `polar_h10` rows (no BPM, ECG columns set).
+ * Band-only ECG snippets: each 10 s snippet becomes its own Room row
+ * with no BPM and the ECG columns set.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SensorOrchestratorEcgTest {
@@ -30,7 +31,7 @@ class SensorOrchestratorEcgTest {
     ) : HeartRateSensor
 
     @Test
-    fun `ecg snippet produces a polar row with ecg columns and null bpm`() =
+    fun `ecg snippet produces a row with ecg columns and null bpm`() =
         runTest(UnconfinedTestDispatcher()) {
             val snippet = PolarEcgChunker.Snippet(
                 timestampMillis = 1_700_000_000_000L,
@@ -41,23 +42,21 @@ class SensorOrchestratorEcgTest {
             coEvery { dao.insert(capture(captured)) } returns Unit
 
             val orchestrator = SensorOrchestrator(
-                heartRateSensor = FakeHrSensor(flowOf()),
-                spO2Provider = mockk(relaxed = true),
+                polarSensor = FakeHrSensor(flowOf()),
                 dao = dao,
                 clock = { 1_700_000_000_000L },
                 ecgProvider = FakeEcgProvider(flowOf(snippet)),
             )
 
             orchestrator.start(backgroundScope)
-            testScheduler.advanceUntilIdle()
+            runCurrent()
+            orchestrator.stop()
 
             assertEquals(1, captured.size)
             val row = captured[0]
-            assertEquals(MeasurementEntity.SOURCE_POLAR, row.source)
             assertNull("ECG rows carry no BPM", row.heartRateBpm)
             assertEquals(1300, row.ecgUv?.size)
             assertEquals(130, row.ecgSampleRateHz)
             assertNull("ECG rows carry no IBI", row.ibisMs)
-            orchestrator.stop()
         }
 }

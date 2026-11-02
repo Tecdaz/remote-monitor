@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
  * Behavior: scan → first device whose name/address contains
  * [deviceId] → connect → discover → subscribe to 0x2A37 → parse
  * with [PolarHrsParser] → emit [HeartRateReading] with `ibis=rrMs`.
- * BPM<=0/null emits `null` (same off-wrist contract as Samsung).
+ * BPM<=0/null emits `null` (no-sample contract).
  * Failures never throw; they emit `null` and close for reconnect.
  *
  * Caller must hold BLUETOOTH_SCAN + BLUETOOTH_CONNECT (T2 wiring).
@@ -118,8 +118,6 @@ class PolarHrsProvider(
                         beatsPerMinute = bpm,
                         timestampMillis = clock(),
                         ibis = sample.rrMs.ifEmpty { null },
-                        ibisStatus = null,
-                        hrStatus = null,
                     ),
                 )
             }
