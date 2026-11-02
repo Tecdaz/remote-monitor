@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 def _registration(bed_number: int, *, replace: bool = False) -> dict:
     return {
         "bed_number": bed_number,
-        "device_model": "samsung SM-R870",
+        "device_model": "Pixel 8",
         "os_version": "16 (API 36)",
         "replace_active_session": replace,
     }

@@ -1,6 +1,8 @@
-"""Alembic round-trip guard for the measurement migrations.
+"""Alembic round-trip guard for the measurement migrations (band-only).
 
 Mirrors the docker-aware xfail pattern from test_schema_introspection.py.
+Head is ``remove_watch_only_fields``: the watch-only sensor columns
+are gone and only the Polar H10 band contract remains.
 """
 from __future__ import annotations
 
@@ -49,22 +51,23 @@ def round_trip_db() -> None:
 def test_migrations_round_trip(round_trip_db: None) -> None:
     """Apply, revert, and re-apply the current head migration.
 
-    Head is currently ``add_hr_status_column`` (adds hr_status to
-    clinical.measurements); this guard also covers any migrations that
-    came before it because the round-trip starts from base.
+    Head is currently ``remove_watch_only_fields`` (drops the
+    watch-only measurement columns); this guard also covers any
+    migrations that came before it because the round-trip starts
+    from base.
     """
     _alembic("upgrade", "head")
     _alembic("downgrade", "-1")
     _alembic("upgrade", "head")
 
 
-async def test_migrations_ibis_status_column_round_trip(round_trip_db: None) -> None:
-    """REQ-NOISE-BE-01: the new ibis_status column is added and round-trips.
+async def test_migrations_head_has_no_watch_only_columns(
+    round_trip_db: None,
+) -> None:
+    """S2: at head the four watch-only columns are gone from the table.
 
-    After upgrading to head we insert and read an integer array to prove
-    the column exists and stores data; after downgrading to before
-    ``add_ibis_status_column`` (explicit target, not ``-1``, so this test
-    stays correct as new migrations land on top) the column is gone.
+    Upgrades to head, then asserts ``clinical.measurements`` has no
+    watch-only column while the band columns remain.
     """
     import os
 
@@ -76,110 +79,35 @@ async def test_migrations_ibis_status_column_round_trip(round_trip_db: None) -> 
         "postgresql+asyncpg://postgres:postgres@localhost:5432/remote_monitor",
     ).replace("postgresql+asyncpg", "postgresql")
 
-    pid = "00000000-0000-0000-0000-000000000001"
     conn = await asyncpg.connect(dsn)
     try:
-        # Insert a patient with a required bed_number so the active CHECK
-        # constraint is satisfied, then insert a measurement with ibis_status.
-        await conn.execute(
-            "INSERT INTO clinical.patients (patient_id, is_active, bed_number) "
-            "VALUES ($1, true, 1)",
-            pid,
+        cols = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'clinical' AND table_name = 'measurements'"
         )
-        await conn.execute(
-            "INSERT INTO clinical.measurements "
-            "(id, patient_id, local_id, timestamp, received_at, ibis_status) "
-            "VALUES ('00000000-0000-0000-0000-000000000003', $1, "
-            "'00000000-0000-0000-0000-000000000002', now(), now(), $2)",
-            pid,
-            [1, 0, 1],
-        )
-        row = await conn.fetchrow(
-            "SELECT ibis_status FROM clinical.measurements WHERE patient_id = $1",
-            pid,
-        )
-        assert row is not None
-        assert list(row["ibis_status"]) == [1, 0, 1]
+        names = {r["column_name"] for r in cols}
     finally:
         await conn.close()
 
-    # Downgrade explicitly to before ibis_status (not `-1`, which would
-    # now mean "before hr_status" with the new chain).
-    _alembic("downgrade", "add_ibis_status_column-1")
-    conn2 = await asyncpg.connect(dsn)
-    try:
-        cols = await conn2.fetch(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'clinical' AND table_name = 'measurements' "
-            "AND column_name = 'ibis_status'"
-        )
-        assert cols == []
-    finally:
-        await conn2.close()
-
-
-async def test_migrations_hr_status_column_round_trip(round_trip_db: None) -> None:
-    """feat-watch-hr-status-surface: the new ``hr_status`` column is added
-    on upgrade and removed on downgrade. Mirrors the ibis_status
-    round-trip test above so the migration is caught by CI even before
-    any ingest-side coverage lands.
-    """
-    import os
-
-    import asyncpg
-
-    _alembic("upgrade", "head")
-    dsn = os.environ.get(
-        "APP_DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/remote_monitor",
-    ).replace("postgresql+asyncpg", "postgresql")
-
-    pid = "00000000-0000-0000-0000-000000000010"
-    conn = await asyncpg.connect(dsn)
-    try:
-        # Insert a patient with a required bed_number so the active CHECK
-        # constraint is satisfied, then insert a measurement with hr_status.
-        await conn.execute(
-            "INSERT INTO clinical.patients (patient_id, is_active, bed_number) "
-            "VALUES ($1, true, 1)",
-            pid,
-        )
-        await conn.execute(
-            "INSERT INTO clinical.measurements "
-            "(id, patient_id, local_id, timestamp, received_at, hr_status) "
-            "VALUES ('00000000-0000-0000-0000-000000000012', $1, "
-            "'00000000-0000-0000-0000-000000000011', now(), now(), $2)",
-            pid,
-            -3,  # wearable detached
-        )
-        row = await conn.fetchrow(
-            "SELECT hr_status FROM clinical.measurements WHERE patient_id = $1",
-            pid,
-        )
-        assert row is not None
-        assert row["hr_status"] == -3
-    finally:
-        await conn.close()
-
-    # Downgrade explicitly to before hr_status (not `-1`, so this test
-    # stays correct as new migrations land on top).
-    _alembic("downgrade", "add_hr_status_column-1")
-    conn2 = await asyncpg.connect(dsn)
-    try:
-        cols = await conn2.fetch(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'clinical' AND table_name = 'measurements' "
-            "AND column_name = 'hr_status'"
-        )
-        assert cols == []
-    finally:
-        await conn2.close()
+    for removed in ("spo2_percent", "ibis_status", "hr_status", "source"):
+        assert removed not in names, f"watch-only column {removed} still at head"
+    for kept in (
+        "id",
+        "patient_id",
+        "local_id",
+        "timestamp",
+        "received_at",
+        "heart_rate_bpm",
+        "ibis_ms",
+        "ecg_uv",
+        "ecg_sample_rate_hz",
+    ):
+        assert kept in names, f"band column {kept} missing at head"
 
 
 async def test_migrations_ecg_columns_round_trip(round_trip_db: None) -> None:
     """polar-ecg-integration: the new ``ecg_uv`` / ``ecg_sample_rate_hz``
-    columns are added on upgrade and removed on downgrade. Mirrors the
-    hr_status round-trip test above.
+    columns are added on upgrade and removed on downgrade.
     """
     import os
 

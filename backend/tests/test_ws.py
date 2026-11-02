@@ -343,7 +343,6 @@ def _valid_measurement(local_id: UUID | None = None) -> dict:
         "local_id": str(local_id or uuid4()),
         "timestamp": "2026-06-29T12:00:00+00:00",
         "heart_rate_bpm": 72,
-        "spo2_percent": 98.0,
     }
 
 
@@ -416,6 +415,16 @@ class TestEndToEnd:
                 assert payload["data"]["patient_id"] == str(patient_id)
                 assert payload["data"]["local_id"] == str(local_id)
                 assert payload["data"]["heart_rate_bpm"] == 72
+                for removed in (
+                    "spo2_percent",
+                    "ibis_status",
+                    "hr_status",
+                    "source",
+                ):
+                    assert removed not in payload["data"], (
+                        f"watch-only {removed!r} in WS payload: "
+                        f"{payload['data']!r}"
+                    )
 
     def test_post_with_no_subscribers_returns_200(self) -> None:
         """REQ-WS-02 scenario 3: POST with no open WS still returns 200."""
@@ -481,44 +490,6 @@ class TestEndToEnd:
                     f"{payload['data'].get('ibis_ms')!r}"
                 )
 
-    def test_post_with_ibis_status_publishes_ibis_status_in_ws_payload(self) -> None:
-        """REQ-NOISE-BE-04: WS frame carries ibis_status when present."""
-        from app.main import app
-
-        patient_id = uuid4()
-        patient_number = "1"
-        local_id = uuid4()
-        item = _valid_measurement(local_id)
-        item["ibis_ms"] = [800, 820, 900]
-        item["ibis_status"] = [0, 0, 0]  # all valid (Samsung: 0 = normal)
-
-        with TestClient(app) as client:
-            with client.websocket_connect(
-                f"/ws/patients/{patient_id}"
-            ) as ws:
-                ws.receive_json()  # WsSubscribed
-
-                q: queue.Queue = queue.Queue()
-                self._read_next_frame_bg(ws, q)
-
-                response = client.post(
-                    f"/api/v1/patients/{patient_id}/measurements",
-                    json=[item],
-                    headers={"X-Patient-Number": patient_number},
-                )
-                assert response.status_code == 200, response.text
-
-                kind, payload = q.get(timeout=2.0)
-                assert kind == "ok", f"reader failed: {payload!r}"
-                assert payload["type"] == "measurement.created"
-                assert "ibis_status" in payload["data"], (
-                    f"ibis_status missing from WS payload: {payload['data']!r}"
-                )
-                assert payload["data"]["ibis_status"] == [0, 0, 0], (
-                    f"expected ibis_status=[0, 0, 0], got "
-                    f"{payload['data'].get('ibis_status')!r}"
-                )
-
     def test_post_with_ecg_publishes_ecg_in_ws_payload(self) -> None:
         """polar-ecg-integration: WS frame carries ecg_uv + rate when present."""
         from app.main import app
@@ -528,7 +499,6 @@ class TestEndToEnd:
         local_id = uuid4()
         item = _valid_measurement(local_id)
         item["heart_rate_bpm"] = None
-        item["source"] = "polar_h10"
         item["ecg_sample_rate_hz"] = 130
         item["ecg_uv"] = [100 + (i % 50) for i in range(1300)]
 
@@ -553,86 +523,6 @@ class TestEndToEnd:
                 assert payload["type"] == "measurement.created"
                 assert payload["data"]["ecg_sample_rate_hz"] == 130
                 assert len(payload["data"]["ecg_uv"]) == 1300
-
-    def test_post_with_hr_status_publishes_hr_status_in_ws_payload(self) -> None:
-        """feat-watch-hr-status-surface: WS frame carries hr_status when present.
-
-        Mirrors the ibis_status test above so live clients see the
-        per-reading Samsung lifecycle code (e.g. -3 off-wrist) in real
-        time, not just on the next GET /measurements refresh.
-        """
-        from app.main import app
-
-        patient_id = uuid4()
-        patient_number = "1"
-        local_id = uuid4()
-        item = _valid_measurement(local_id)
-        item["hr_status"] = -3  # wearable detached
-
-        with TestClient(app) as client:
-            with client.websocket_connect(
-                f"/ws/patients/{patient_id}"
-            ) as ws:
-                ws.receive_json()  # WsSubscribed
-
-                q: queue.Queue = queue.Queue()
-                self._read_next_frame_bg(ws, q)
-
-                response = client.post(
-                    f"/api/v1/patients/{patient_id}/measurements",
-                    json=[item],
-                    headers={"X-Patient-Number": patient_number},
-                )
-                assert response.status_code == 200, response.text
-
-                kind, payload = q.get(timeout=2.0)
-                assert kind == "ok", f"reader failed: {payload!r}"
-                assert payload["type"] == "measurement.created"
-                assert "hr_status" in payload["data"], (
-                    f"hr_status missing from WS payload: {payload['data']!r}"
-                )
-                assert payload["data"]["hr_status"] == -3, (
-                    f"expected hr_status=-3, got "
-                    f"{payload['data'].get('hr_status')!r}"
-                )
-
-    def test_post_without_hr_status_publishes_null_in_ws_payload(self) -> None:
-        """Backwards-compat: an old client without hr_status gets a null
-        on the wire so the TS type contract (``number | null``) holds.
-        """
-        from app.main import app
-
-        patient_id = uuid4()
-        patient_number = "1"
-        local_id = uuid4()
-        item = _valid_measurement(local_id)
-        # hr_status intentionally omitted
-
-        with TestClient(app) as client:
-            with client.websocket_connect(
-                f"/ws/patients/{patient_id}"
-            ) as ws:
-                ws.receive_json()  # WsSubscribed
-
-                q: queue.Queue = queue.Queue()
-                self._read_next_frame_bg(ws, q)
-
-                response = client.post(
-                    f"/api/v1/patients/{patient_id}/measurements",
-                    json=[item],
-                    headers={"X-Patient-Number": patient_number},
-                )
-                assert response.status_code == 200, response.text
-
-                kind, payload = q.get(timeout=2.0)
-                assert kind == "ok", f"reader failed: {payload!r}"
-                assert "hr_status" in payload["data"], (
-                    f"hr_status missing from WS payload: {payload['data']!r}"
-                )
-                assert payload["data"]["hr_status"] is None, (
-                    f"expected hr_status=null, got "
-                    f"{payload['data'].get('hr_status')!r}"
-                )
 
 
 # =========================================================================

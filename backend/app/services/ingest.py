@@ -193,7 +193,7 @@ async def upload_measurements(
 ) -> BatchResponse:
     """Persist a batch of measurements for ``patient_number``.
 
-    ``raw_items`` is the list of dicts the watch sent. Each item is
+    ``raw_items`` is the list of dicts the collector app sent. Each item is
     validated individually against ``MeasurementBatch``; invalid items
     land in ``BatchResponse.rejected`` with a human-readable reason
     (the watch keeps those local rows). The valid items are committed
@@ -251,16 +251,8 @@ async def upload_measurements(
                             "local_id": item.local_id,
                             "timestamp": item.timestamp,
                             "heart_rate_bpm": item.heart_rate_bpm,
-                            "spo2_percent": item.spo2_percent,
                             "received_at": received_at,
                             "ibis_ms": item.ibis_ms,
-                            "ibis_status": item.ibis_status,
-                            # feat-watch-hr-status-surface: per-reading
-                            # Samsung lifecycle code (or None).
-                            "hr_status": item.hr_status,
-                            # polar-h10-validation: per-row source
-                            # discriminator (defaults to Samsung).
-                            "source": item.source,
                             # polar-ecg-integration: ECG validation
                             # strip (or None on vital-sign rows).
                             "ecg_uv": item.ecg_uv,
@@ -319,29 +311,12 @@ async def upload_measurements(
                 "local_id": str(item.local_id),
                 "timestamp": item.timestamp.isoformat(),
                 "heart_rate_bpm": item.heart_rate_bpm,
-                "spo2_percent": (
-                    float(item.spo2_percent)
-                    if item.spo2_percent is not None
-                    else None
-                ),
                 "received_at": received_at.isoformat(),
                 "ibis_ms": (
                     list(item.ibis_ms)
                     if item.ibis_ms is not None
                     else None
                 ),
-                "ibis_status": (
-                    list(item.ibis_status)
-                    if item.ibis_status is not None
-                    else None
-                ),
-                # feat-watch-hr-status-surface: per-reading Samsung
-                # lifecycle code in the WS payload so live clients see
-                # the off-wrist / BIA / success signal immediately.
-                "hr_status": item.hr_status,
-                # polar-h10-validation: source discriminator so live
-                # clients can split validation streams.
-                "source": item.source,
                 # polar-ecg-integration: ECG strip so live clients
                 # can render it without polling the REST history.
                 "ecg_uv": (

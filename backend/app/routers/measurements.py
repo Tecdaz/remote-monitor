@@ -80,7 +80,7 @@ async def upload_measurements(
     session: AsyncSession = Depends(get_session),
 ) -> BatchResponse:
     """Persist a batch of measurements; return the ``local_id``s that
-    the watch is allowed to delete (delete-after-echo).
+    the collector app is allowed to delete (delete-after-echo).
     """
     n = len(body)
     if n == 0:
@@ -208,14 +208,7 @@ async def list_measurements(
             timestamp=row.timestamp,
             received_at=row.received_at,
             heart_rate_bpm=row.heart_rate_bpm,
-            spo2_percent=row.spo2_percent,
             ibis_ms=row.ibis_ms,
-            ibis_status=row.ibis_status,
-            # feat-watch-hr-status-surface: include the per-reading
-            # Samsung lifecycle code in the list response.
-            hr_status=row.hr_status,
-            # polar-h10-validation: per-row source discriminator.
-            source=row.source,
             # polar-ecg-integration: ECG strip (None on vital rows).
             ecg_uv=row.ecg_uv,
             ecg_sample_rate_hz=row.ecg_sample_rate_hz,
@@ -267,14 +260,7 @@ async def get_measurement(
         timestamp=row.timestamp,
         received_at=row.received_at,
         heart_rate_bpm=row.heart_rate_bpm,
-        spo2_percent=row.spo2_percent,
         ibis_ms=row.ibis_ms,
-        ibis_status=row.ibis_status,
-        # feat-watch-hr-status-surface: include the per-reading Samsung
-        # lifecycle code in the single-measurement response.
-        hr_status=row.hr_status,
-        # polar-h10-validation: per-row source discriminator.
-        source=row.source,
         # polar-ecg-integration: ECG strip (None on vital rows).
         ecg_uv=row.ecg_uv,
         ecg_sample_rate_hz=row.ecg_sample_rate_hz,

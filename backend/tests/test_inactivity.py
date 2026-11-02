@@ -350,7 +350,6 @@ class TestInactivityIntegration:
             "local_id": str(uuid4()),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "heart_rate_bpm": 72,
-            "spo2_percent": 98.0,
         }
         response = await upload_measurements(
             session,

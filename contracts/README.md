@@ -1,6 +1,11 @@
 # contracts
 
-Source of truth for the wire contract between the watch, backend, and frontend.
+Source of truth for the wire contract between the band collector app, backend, and frontend.
+
+Band-only payload (S1/S2): every measurement comes from the Polar H10 band —
+`heart_rate_bpm`, `ibis_ms`, `ecg_uv` / `ecg_sample_rate_hz` plus `local_id`,
+`timestamp` and the server-assigned `id`, `patient_id`, `received_at`.
+There are no watch-only fields.
 
 ## Files
 

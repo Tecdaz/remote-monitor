@@ -42,29 +42,19 @@ def _valid_item(local_id: UUID | None = None) -> dict:
         "local_id": str(local_id or uuid4()),
         "timestamp": datetime(2026, 6, 29, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
         "heart_rate_bpm": 72,
-        "spo2_percent": 98.0,
     }
 
 
 def _valid_item_with_ibis(
     local_id: UUID | None = None,
     ibis_ms: list[int] | None = None,
-    ibis_status: list[int] | None = None,
-    hr_status: int | None = None,
 ) -> dict:
-    """A valid ``MeasurementBatch`` carrying an ``ibis_ms`` list
-    (REQ-WATCH-HR-IBI-11 S01). Defaults to a 2-sample list.
+    """A valid ``MeasurementBatch`` carrying an ``ibis_ms`` list.
 
-    ``hr_status`` (feat-watch-hr-status-surface) is optional — `None`
-    omits the key entirely so the test exercises the backwards-compat
-    path where old clients send no status.
+    Defaults to a 2-sample list.
     """
     item = _valid_item(local_id)
     item["ibis_ms"] = ibis_ms if ibis_ms is not None else [800, 820]
-    if ibis_status is not None:
-        item["ibis_status"] = ibis_status
-    if hr_status is not None:
-        item["hr_status"] = hr_status
     return item
 
 
@@ -74,7 +64,6 @@ def _invalid_item() -> dict:
         "local_id": str(uuid4()),
         "timestamp": datetime(2026, 6, 29, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
         "heart_rate_bpm": 400,  # Pydantic rejects: max=299
-        "spo2_percent": 98.0,
     }
 
 
@@ -254,8 +243,8 @@ class TestIngestService:
             path_patient_id=path_pid,
             patient_number="1",
             raw_items=items,
-            device_model="Samsung Galaxy Watch 4",
-            os_version="Wear OS 6 (API 36)",
+            device_model="Pixel 8",
+            os_version="Android 14",
         )
 
         pii = (
@@ -274,8 +263,8 @@ class TestIngestService:
                 )
             )
         ).scalar_one()
-        assert clinical.device_model == "Samsung Galaxy Watch 4"
-        assert clinical.os_version == "Wear OS 6 (API 36)"
+        assert clinical.device_model == "Pixel 8"
+        assert clinical.os_version == "Android 14"
         assert clinical.is_active is True
 
     async def test_upload_uses_unknown_for_missing_device_headers(
@@ -536,47 +525,42 @@ class TestIngestService:
             f"expected ibis_ms=[800, 820], got {list(row.ibis_ms)!r}"
         )
 
-    # --- REQ-NOISE-BE-06: ibis_status persistence + backwards-compat ----
+    # --- band-only contract: watch-only fields are rejected -------------
 
-    async def test_upload_persists_ibis_status_to_clinical_measurements(
+    async def test_upload_rejects_watch_only_fields_per_item(
         self, session: AsyncSession
     ) -> None:
-        """REQ-NOISE-BE-03: a batch with valid ibis_status stores the array.
-
-        Samsung IBI_STATUS_LIST convention (SDK >= 1.2.0): 0 = normal/valid,
-        -1 = error/invalid. A beat is also invalid when ibis_ms == 0.
+        """S2: payloads carrying removed watch-only fields are rejected
+        per item (``extra="forbid"``); the valid item still ingests and
+        no rejected row is persisted.
         """
         path_pid = uuid4()
-        local_id = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                local_id,
-                ibis_ms=[800, 820, 900],
-                ibis_status=[0, 0, 0],
-            )
-        ]
+        bad_o2 = _valid_item()
+        bad_o2["spo2_percent"] = 98.0
+        bad_ibi_flags = _valid_item_with_ibis()
+        bad_ibi_flags["ibis_status"] = [0, 0]
+        bad_beat_code = _valid_item()
+        bad_beat_code["hr_status"] = 1
+        bad_origin = _valid_item()
+        bad_origin["source"] = "samsung_watch"
+        items = [_valid_item(), bad_o2, bad_ibi_flags, bad_beat_code, bad_origin]
         response = await upload_measurements(
             session,
             path_patient_id=path_pid,
             patient_number="1",
             raw_items=items,
         )
-        assert response.accepted_ids == [local_id]
-        assert response.rejected == []
+        assert len(response.accepted_ids) == 1
+        assert len(response.rejected) == 4
 
-        await session.commit()
-        async with session.bind.connect() as conn:
-            result = await conn.execute(
-                text(
-                    "SELECT ibis_ms, ibis_status FROM clinical.measurements "
-                    "WHERE patient_id = :pid AND local_id = :lid"
-                ),
-                {"pid": path_pid, "lid": local_id},
+        meas = (
+            await session.execute(
+                select(ClinicalMeasurement).where(
+                    ClinicalMeasurement.patient_id == path_pid
+                )
             )
-            row = result.one_or_none()
-        assert row is not None, "row not found in clinical.measurements"
-        assert list(row.ibis_ms) == [800, 820, 900]
-        assert list(row.ibis_status) == [0, 0, 0]
+        ).scalars().all()
+        assert len(meas) == 1
 
     # --- polar-ecg-integration T3: ecg strip persistence + validation ----
 
@@ -588,7 +572,6 @@ class TestIngestService:
         local_id = uuid4()
         item = _valid_item(local_id)
         item["heart_rate_bpm"] = None
-        item["source"] = "polar_h10"
         item["ecg_sample_rate_hz"] = 130
         item["ecg_uv"] = [100 + (i % 50) for i in range(1300)]
         response = await upload_measurements(
@@ -604,7 +587,7 @@ class TestIngestService:
         async with session.bind.connect() as conn:
             result = await conn.execute(
                 text(
-                    "SELECT ecg_uv, ecg_sample_rate_hz, heart_rate_bpm, source "
+                    "SELECT ecg_uv, ecg_sample_rate_hz, heart_rate_bpm "
                     "FROM clinical.measurements "
                     "WHERE patient_id = :pid AND local_id = :lid"
                 ),
@@ -615,7 +598,6 @@ class TestIngestService:
         assert len(list(row.ecg_uv)) == 1300
         assert row.ecg_sample_rate_hz == 130
         assert row.heart_rate_bpm is None
-        assert row.source == "polar_h10"
 
     async def test_upload_rejects_ecg_without_sample_rate(
         self, session: AsyncSession
@@ -664,7 +646,6 @@ class TestIngestService:
                 _valid_item_with_ibis(
                     local_id,
                     ibis_ms=[800, 750, 820, 810, 790],
-                    ibis_status=[0, -1, 0, 0, -1],
                 )
             ],
         )
@@ -676,7 +657,7 @@ class TestIngestService:
             row = (
                 await conn.execute(
                     text(
-                        "SELECT ibis_ms, ibis_status FROM clinical.measurements "
+                        "SELECT ibis_ms FROM clinical.measurements "
                         "WHERE patient_id = :pid AND local_id = :lid"
                     ),
                     {"pid": path_pid, "lid": local_id},
@@ -684,7 +665,6 @@ class TestIngestService:
             ).one_or_none()
         assert row is not None
         assert list(row.ibis_ms) == [800, 750, 820, 810, 790]
-        assert list(row.ibis_status) == [0, -1, 0, 0, -1]
 
     async def test_upload_accepts_100_noisy_items(
         self, session: AsyncSession
@@ -694,7 +674,6 @@ class TestIngestService:
         items = [
             _valid_item_with_ibis(
                 ibis_ms=[800, 820],
-                ibis_status=[0, -1],
             )
             for _ in range(100)
         ]
@@ -707,19 +686,13 @@ class TestIngestService:
         assert len(response.accepted_ids) == 100
         assert response.rejected == []
 
-    async def test_upload_without_ibis_status_stores_null(
+    async def test_upload_without_ibis_ms_stores_null(
         self, session: AsyncSession
     ) -> None:
-        """REQ-NOISE-BE-06: old watches omitting ibis_status persist NULL."""
+        """Band rows without IBI persist NULL for ``ibis_ms``."""
         path_pid = uuid4()
         local_id = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                local_id,
-                ibis_ms=[800, 820],
-                ibis_status=None,
-            )
-        ]
+        items = [_valid_item(local_id)]  # no ibis_ms
         response = await upload_measurements(
             session,
             path_patient_id=path_pid,
@@ -733,109 +706,27 @@ class TestIngestService:
         async with session.bind.connect() as conn:
             result = await conn.execute(
                 text(
-                    "SELECT ibis_status FROM clinical.measurements "
+                    "SELECT ibis_ms FROM clinical.measurements "
                     "WHERE patient_id = :pid AND local_id = :lid"
                 ),
                 {"pid": path_pid, "lid": local_id},
             )
             row = result.one_or_none()
         assert row is not None
-        assert row.ibis_status is None
-
-    async def test_upload_rejects_ibis_status_length_mismatch(
-        self, session: AsyncSession
-    ) -> None:
-        """REQ-NOISE-BE-02: ibis_status length must match ibis_ms."""
-        path_pid = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                ibis_ms=[800, 820],
-                ibis_status=[1, 0, 1],  # 3 items, ibis_ms has 2
-            )
-        ]
-        response = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="3",
-            raw_items=items,
-        )
-        assert len(response.accepted_ids) == 0
-        assert len(response.rejected) == 1
-        assert "ibis_status length must match ibis_ms" in response.rejected[0].reason
-
-    async def test_upload_rejects_ibis_status_value_out_of_range(
-        self, session: AsyncSession
-    ) -> None:
-        """REQ-NOISE-BE-02: ibis_status values must be in [-1, 2^31-1]."""
-        path_pid = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                ibis_ms=[800, 820],
-                ibis_status=[0, -2],  # -2 is below the Samsung-documented floor
-            )
-        ]
-        response = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="4",
-            raw_items=items,
-        )
-        assert len(response.accepted_ids) == 0
-        assert len(response.rejected) == 1
-        assert "ibis_status value" in response.rejected[0].reason
-
-    async def test_upload_ibis_status_idempotent_on_local_id(
-        self, session: AsyncSession
-    ) -> None:
-        """REQ-NOISE-BE-06: re-POSTing ibis_status does not duplicate rows."""
-        path_pid = uuid4()
-        local_id = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                local_id,
-                ibis_ms=[800, 820],
-                ibis_status=[0, 0],  # Samsung: both beats normal/valid
-            )
-        ]
-        first = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="5",
-            raw_items=items,
-        )
-        second = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="5",
-            raw_items=items,
-        )
-        assert sorted(first.accepted_ids) == sorted(second.accepted_ids)
-        assert second.rejected == []
-
-        meas = (
-            await session.execute(
-                select(ClinicalMeasurement).where(
-                    ClinicalMeasurement.patient_id == path_pid
-                )
-            )
-        ).scalars().all()
-        assert len(meas) == 1
-        assert list(meas[0].ibis_status) == [0, 0]
+        assert row.ibis_ms is None
 
     async def test_upload_rejects_ibis_zero_sentinel(
         self, session: AsyncSession
     ) -> None:
-        """Samsung sentinel: ibis_ms == 0 means 'no IBI data' and is invalid
-        even when status == 0. The existing ibis_ms clamp ([1, 5000])
-        catches this case at field-validation time, BEFORE the pair rule
-        runs, so the rejection reason names ibis_ms rather than the pair
-        rule.
+        """Band clamp: ``ibis_ms == 0`` means "no IBI data" and is invalid.
+
+        The ``ibis_ms`` clamp ([1, 5000]) catches the 0 sentinel at
+        field-validation time, so the rejection reason names ibis_ms.
         """
         path_pid = uuid4()
         items = [
             _valid_item_with_ibis(
                 ibis_ms=[800, 0],  # second beat is the 0 sentinel
-                ibis_status=[0, 0],
             )
         ]
         response = await upload_measurements(
@@ -846,135 +737,8 @@ class TestIngestService:
         )
         assert len(response.accepted_ids) == 0
         assert len(response.rejected) == 1
-        # Field-level clamp fires first; pair rule is unreachable here.
+        # Field-level clamp fires first; the 0 entry never reaches storage.
         assert "ibis_ms value 0" in response.rejected[0].reason
-
-    # --- feat-watch-hr-status-surface: HEART_RATE_STATUS -------------------
-
-    async def test_upload_persists_hr_status_to_clinical_measurements(
-        self, session: AsyncSession
-    ) -> None:
-        """REQ-WATCH-HR-STATUS-01: a batch with ``hr_status=1`` stores the
-        value in ``clinical.measurements.hr_status``. End-to-end: Pydantic
-        validator -> ingest service -> ORM column.
-        """
-        path_pid = uuid4()
-        local_id = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                local_id,
-                ibis_ms=[800, 820],
-                ibis_status=[0, 0],
-                hr_status=1,  # documented success code
-            )
-        ]
-        response = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="2",
-            raw_items=items,
-        )
-        assert len(response.accepted_ids) == 1
-        assert response.rejected == []
-
-        row = (
-            await session.execute(
-                select(ClinicalMeasurement).where(
-                    ClinicalMeasurement.patient_id == path_pid
-                )
-            )
-        ).scalars().one()
-        assert row.hr_status == 1
-
-    async def test_upload_persists_off_wrist_hr_status_minus_3(
-        self, session: AsyncSession
-    ) -> None:
-        """The off-wrist code (-3) is the operationally most important
-        status: it lets the backend mark the BPM as "sensor off-wrist"
-        without inferring it from the BPM<=0 heuristic. Round-trip
-        through the column to catch any future regression.
-        """
-        path_pid = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                ibis_ms=[800, 820],
-                ibis_status=[0, 0],
-                hr_status=-3,  # wearable detached
-            )
-        ]
-        response = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="3",
-            raw_items=items,
-        )
-        assert len(response.accepted_ids) == 1
-
-        row = (
-            await session.execute(
-                select(ClinicalMeasurement).where(
-                    ClinicalMeasurement.patient_id == path_pid
-                )
-            )
-        ).scalars().one()
-        assert row.hr_status == -3
-
-    async def test_upload_without_hr_status_stores_null(
-        self, session: AsyncSession
-    ) -> None:
-        """Backwards-compat: an old client omitting ``hr_status`` ingests
-        cleanly and the column is NULL.
-        """
-        path_pid = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                ibis_ms=[800, 820],
-                ibis_status=[0, 0],
-                # hr_status omitted -> None
-            )
-        ]
-        response = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="4",
-            raw_items=items,
-        )
-        assert len(response.accepted_ids) == 1
-
-        row = (
-            await session.execute(
-                select(ClinicalMeasurement).where(
-                    ClinicalMeasurement.patient_id == path_pid
-                )
-            )
-        ).scalars().one()
-        assert row.hr_status is None
-
-    async def test_upload_rejects_hr_status_value_out_of_set(
-        self, session: AsyncSession
-    ) -> None:
-        """The Pydantic validator enforces the closed Samsung-documented
-        set {-999, -10, -8, -3, -2, 0, 1}. An item carrying a stale or
-        unknown code (e.g. a future SDK release with a new sentinel) is
-        rejected individually so the rest of the batch still ingests.
-        """
-        path_pid = uuid4()
-        items = [
-            _valid_item_with_ibis(
-                ibis_ms=[800, 820],
-                ibis_status=[0, 0],
-                hr_status=-7,  # NOT in the documented set
-            )
-        ]
-        response = await upload_measurements(
-            session,
-            path_patient_id=path_pid,
-            patient_number="5",
-            raw_items=items,
-        )
-        assert len(response.accepted_ids) == 0
-        assert len(response.rejected) == 1
-        assert "hr_status value -7" in response.rejected[0].reason
 
     # --- patient inactivity refresh (sdd/feat-patient-inactivity-sweep) --
 
@@ -1334,7 +1098,6 @@ class TestMeasurementsRouter:
         path_pid = uuid4()
         item = _valid_item_with_ibis(
             ibis_ms=[800, 750],
-            ibis_status=[0, -1],
         )
         resp = await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
@@ -1390,8 +1153,8 @@ class TestMeasurementsRouter:
             json=_batch_items(2),
             headers={
                 "X-Patient-Number": "2",
-                "X-Device-Model": "Samsung Galaxy Watch 4",
-                "X-OS-Version": "Wear OS 6 (API 36)",
+                "X-Device-Model": "Pixel 8",
+                "X-OS-Version": "Android 14",
             },
         )
         assert response.status_code == 200
@@ -1629,16 +1392,17 @@ class TestMeasurementsRouter:
         assert response.status_code == 404
         assert response.json()["detail"]["code"] == "measurement_not_found"
 
-    async def test_get_measurements_includes_ibis_status(
+    # --- band-only contract: GET responses carry the band shape ---------
+
+    async def test_get_measurements_have_band_only_shape(
         self, client: AsyncClient
     ) -> None:
-        """REQ-NOISE-BE-05: list_measurements includes ibis_status."""
+        """S2: list items carry the band contract and no watch-only keys."""
         path_pid = uuid4()
         local_id = uuid4()
         item = _valid_item_with_ibis(
             local_id,
             ibis_ms=[800, 820, 900],
-            ibis_status=[0, 0, 0],  # all valid (Samsung: 0 = normal)
         )
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
@@ -1651,18 +1415,28 @@ class TestMeasurementsRouter:
         assert response.status_code == 200
         body = response.json()
         assert len(body["items"]) == 1
-        assert body["items"][0]["ibis_status"] == [0, 0, 0]
+        assert body["items"][0]["ibis_ms"] == [800, 820, 900]
+        assert set(body["items"][0]) == {
+            "id",
+            "patient_id",
+            "local_id",
+            "timestamp",
+            "received_at",
+            "heart_rate_bpm",
+            "ibis_ms",
+            "ecg_uv",
+            "ecg_sample_rate_hz",
+        }
 
-    async def test_get_measurement_by_id_includes_ibis_status(
+    async def test_get_measurement_by_id_has_band_only_shape(
         self, client: AsyncClient
     ) -> None:
-        """REQ-NOISE-BE-05: get_measurement includes ibis_status."""
+        """S2: the single-item response carries the band contract."""
         path_pid = uuid4()
         local_id = uuid4()
         item = _valid_item_with_ibis(
             local_id,
             ibis_ms=[800, 820],
-            ibis_status=[0, 0],
         )
         await client.post(
             f"/api/v1/patients/{path_pid}/measurements",
@@ -1678,85 +1452,15 @@ class TestMeasurementsRouter:
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["ibis_status"] == [0, 0]
-
-    # --- feat-watch-hr-status-surface: hr_status in GET responses -------
-
-    async def test_get_measurements_includes_hr_status(
-        self, client: AsyncClient
-    ) -> None:
-        """list_measurements surfaces hr_status on every item."""
-        path_pid = uuid4()
-        local_id = uuid4()
-        item = _valid_item_with_ibis(
-            local_id,
-            ibis_ms=[800, 820],
-            ibis_status=[0, 0],
-            hr_status=-3,  # wearable detached
-        )
-        await client.post(
-            f"/api/v1/patients/{path_pid}/measurements",
-            json=[item],
-            headers={"X-Patient-Number": "1"},
-        )
-        response = await client.get(
-            f"/api/v1/patients/{path_pid}/measurements"
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert len(body["items"]) == 1
-        assert body["items"][0]["hr_status"] == -3
-
-    async def test_get_measurements_includes_hr_status_null(
-        self, client: AsyncClient
-    ) -> None:
-        """Backwards-compat: an old client omitting hr_status sees a null
-        on the wire, never an absent key.
-        """
-        path_pid = uuid4()
-        local_id = uuid4()
-        item = _valid_item_with_ibis(
-            local_id,
-            ibis_ms=[800, 820],
-            ibis_status=[0, 0],
-            # hr_status omitted -> None
-        )
-        await client.post(
-            f"/api/v1/patients/{path_pid}/measurements",
-            json=[item],
-            headers={"X-Patient-Number": "2"},
-        )
-        response = await client.get(
-            f"/api/v1/patients/{path_pid}/measurements"
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["items"][0]["hr_status"] is None
-
-    async def test_get_measurement_by_id_includes_hr_status(
-        self, client: AsyncClient
-    ) -> None:
-        """get_measurement surfaces hr_status on the single-item response."""
-        path_pid = uuid4()
-        local_id = uuid4()
-        item = _valid_item_with_ibis(
-            local_id,
-            ibis_ms=[800, 820],
-            ibis_status=[0, 0],
-            hr_status=1,  # successful HR measurement
-        )
-        await client.post(
-            f"/api/v1/patients/{path_pid}/measurements",
-            json=[item],
-            headers={"X-Patient-Number": "3"},
-        )
-        listed = await client.get(
-            f"/api/v1/patients/{path_pid}/measurements"
-        )
-        target_id = listed.json()["items"][0]["id"]
-        response = await client.get(
-            f"/api/v1/measurements/{target_id}"
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["hr_status"] == 1
+        assert body["ibis_ms"] == [800, 820]
+        assert set(body) == {
+            "id",
+            "patient_id",
+            "local_id",
+            "timestamp",
+            "received_at",
+            "heart_rate_bpm",
+            "ibis_ms",
+            "ecg_uv",
+            "ecg_sample_rate_hz",
+        }

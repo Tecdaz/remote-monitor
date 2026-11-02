@@ -4,32 +4,15 @@
  * codegen for this surface.
  */
 
-/** Mirror of the OpenAPI `Measurement` schema in `contracts/openapi.yaml`. */
+/** Mirror of the OpenAPI `Measurement` schema in `contracts/openapi.yaml`.
+ * Band-only (S1/S2): Polar H10 heart rate, IBI and ECG. No watch-only fields. */
 export interface Measurement {
   id: string;
   patient_id: string;
   timestamp: string;
   heart_rate_bpm: number | null;
-  spo2_percent: number | null;
+  /** Raw inter-beat intervals in ms from the Polar H10 band. null when not provided. */
   ibis_ms: number[] | null;
-  /**
-   * Per-beat Samsung IBI quality flag (IBI_STATUS_LIST).
-   * 0 = normal/valid; -1 = error/invalid. Length matches ibis_ms.
-   * null when the device does not provide status.
-   */
-  ibis_status: number[] | null;
-  /**
-   * Samsung HEART_RATE_STATUS per-reading lifecycle code.
-   * Documented in the Samsung API Reference at `ValueKey.HeartRateSet.html`.
-   * 1 = success; 0 = initial or BIA operating; -2 = movement; -3 = off-wrist;
-   * -8 = weak PPG; -10 = too weak; -999 = BIA operating; null when not provided.
-   */
-  hr_status: number | null;
-  /**
-   * Measurement source (polar-h10-validation).
-   * 'samsung_watch' = Samsung SDK pipeline; 'polar_h10' = Polar H10 strap.
-   */
-  source: 'samsung_watch' | 'polar_h10';
   /**
    * Polar H10 ECG snippet voltages in microvolts @ `ecg_sample_rate_hz`
    * (polar-ecg-integration; 10 s @ 130 Hz = 1300 samples).

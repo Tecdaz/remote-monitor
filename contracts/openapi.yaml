@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Remote Monitor API
   version: "1.0.0"
-  description: "REST API for the remote patient monitoring PoC. HIPAA-like posture (POC, not implemented control): encryption in-transit and at-rest, audit log, defined retention, PII/clinical separation (`patient_number` is the only PII; clinical records use opaque `patient_id` UUIDs). Critical invariant: `delete-after-echo` — the watch only deletes a locally stored measurement after the backend echoes its `local_id` back in `accepted_ids`."
+  description: "REST API for the remote patient monitoring PoC. HIPAA-like posture (POC, not implemented control): encryption in-transit and at-rest, audit log, defined retention, PII/clinical separation (`patient_number` is the only PII; clinical records use opaque `patient_id` UUIDs). Critical invariant: `delete-after-echo` — the collector app only deletes a locally stored measurement after the backend echoes its `local_id` back in `accepted_ids`."
   contact:
     name: remote-monitor maintainers
     email: maintainers@remote-monitor.local
@@ -17,7 +17,7 @@ servers:
     description: Production placeholder
 tags:
   - name: watch
-    description: Endpoints called by the Wear OS watch
+    description: Endpoints called by the band collector app (watch, phone or tablet)
   - name: frontend
     description: Endpoints called by the TanStack dashboard
   - name: admin
@@ -28,7 +28,7 @@ paths:
       tags: [watch, admin]
       operationId: registerPatient
       summary: Register a patient against a selected bed
-      description: "The watch calls this after the operator selects a bed (1..5) on the bed picker. The patient_number ciphertext is no longer operator-typed — instead the backend derives it deterministically from `bed_number` via `pgp_sym_encrypt`. When `replace_active_session = true`, any active session on the same `bed_number` is atomically deactivated and a new session is created in the same transaction (per the partial UNIQUE index `ux_clinical_patients_active_bed` and the D16 `IntegrityError` mapping). When `replace_active_session = false` (default) and the bed is already active, the request is refused with `409 bed_now_occupied`. 503 with `Problem` if the database is degraded."
+      description: "The collector app calls this after the operator selects a bed (1..5) on the bed picker. The patient_number ciphertext is no longer operator-typed — instead the backend derives it deterministically from `bed_number` via `pgp_sym_encrypt`. When `replace_active_session = true`, any active session on the same `bed_number` is atomically deactivated and a new session is created in the same transaction (per the partial UNIQUE index `ux_clinical_patients_active_bed` and the D16 `IntegrityError` mapping). When `replace_active_session = false` (default) and the bed is already active, the request is refused with `409 bed_now_occupied`. 503 with `Problem` if the database is degraded."
       security: []
       requestBody:
         required: true
@@ -99,10 +99,10 @@ paths:
       tags: [watch]
       operationId: uploadMeasurements
       summary: Upload a batch of measurements (delete-after-echo endpoint)
-      description: "The watch uploads a batch. `delete-after-echo`: the watch deletes local Room rows ONLY for `local_id`s in `accepted_ids`; rejected items are preserved. The `X-Patient-Number` header MUST match the `{patient_id}` path parameter; otherwise 403. **Auto-register**: if the patient identified by `X-Patient-Number` is not yet registered, the backend auto-registers them in the same transaction using the device headers `X-Device-Model` and `X-OS-Version` (defaulting to `unknown` if absent). Subsequent uploads do not re-register. The backend MUST emit an audit entry `{actor, action: \"measurement.create\", count, ts}` for every 2xx batch POST. Body is 1-1000 `MeasurementBatch` items; 413 otherwise."
+      description: "The band collector app uploads a batch. `delete-after-echo`: the collector app deletes locally stored rows ONLY for `local_id`s in `accepted_ids`; rejected items are preserved. The `X-Patient-Number` header MUST match the `{patient_id}` path parameter; otherwise 403. **Auto-register**: if the patient identified by `X-Patient-Number` is not yet registered, the backend auto-registers them in the same transaction using the device headers `X-Device-Model` and `X-OS-Version` (defaulting to `unknown` if absent). Subsequent uploads do not re-register. The backend MUST emit an audit entry `{actor, action: \"measurement.create\", count, ts}` for every 2xx batch POST. Body is 1-1000 `MeasurementBatch` items; 413 otherwise."
       parameters:
-        - { in: header, name: X-Device-Model, required: false, schema: { type: string }, description: "Watch hardware model. Used only on first upload to auto-register the patient." }
-        - { in: header, name: X-OS-Version, required: false, schema: { type: string }, description: "Watch OS version. Used only on first upload to auto-register the patient." }
+        - { in: header, name: X-Device-Model, required: false, schema: { type: string }, description: "Collector device hardware model. Used only on first upload to auto-register the patient." }
+        - { in: header, name: X-OS-Version, required: false, schema: { type: string }, description: "Collector device OS version. Used only on first upload to auto-register the patient." }
       security: [{ PatientNumberHeader: [] }]
       requestBody:
         required: true
@@ -186,7 +186,7 @@ components:
       type: apiKey
       in: header
       name: X-Patient-Number
-      description: "Watch identification header. Must match the `{patient_id}` path parameter on `POST /patients/{patient_id}/measurements`."
+      description: "Collector app identification header. Must match the `{patient_id}` path parameter on `POST /patients/{patient_id}/measurements`."
   parameters:
     PatientIdPath:
       in: path
@@ -202,19 +202,19 @@ components:
       properties:
         patient_id:    { type: string, format: uuid, description: "Server-assigned opaque UUID. The only link from clinical records to PII." }
         patient_number: { type: string, description: "Encrypted bed number (PostgreSQL pgp_sym_encrypt of the bed number in 1..5). NOT an operator-typed identifier; do not display as plain text.", example: "MIIBiQYJKoZIhvcNAQDo+0D+lpNbQEDdHJlYXRlZEBrE1lMrQECREMwBQYDK2VwBCMQOlhLVDc4WnB1djVxTEhNSjFQcmZQTlpMNlVrQVhxY3NQNFhmN2tVS2tGM1VxSlhVSmkrRmhKN0FLb0o3SFd6RHhLdlJZRHJLZkx4c1Q3Z2VBQ0FvM2JrR0tuZUFIZlpPMU9wNkhRK09wcG9WM2d2bXF1TGIya3RCVVZtVGh1YVk4PQECMB2jTFPleV9bscAtxA99JeUQiEYD6v6+arT3qUUEAQH/" }
-        device_model:  { type: string, description: "Watch hardware model.", example: Samsung Galaxy Watch 4 }
-        os_version:    { type: string, description: "Watch OS version string.", example: "Wear OS 6 (API 36)" }
+        device_model:  { type: string, description: "Collector device hardware model.", example: Pixel 8 }
+        os_version:    { type: string, description: "Collector device OS version string.", example: "Android 14" }
         created_at:    { type: string, format: date-time, description: "Server-assigned registration timestamp." }
         is_active:     { type: boolean, description: "Soft-delete flag. `false` means deactivated." }
         last_measurement_at: { type: string, format: date-time, description: "Timestamp of the last accepted measurement batch. Non-nullable; defaults to registration time via the DDL DEFAULT." }
     RegisterPatientRequest:
       type: object
-      description: "Payload for `POST /patients`. Replaces the free-form `patient_number` operator-typed identifier with `bed_number` in 1..5 (the watch's bed picker now emits this). `replace_active_session` opts into an atomic replace of any active session on the same bed; absent or `false` returns `409 bed_now_occupied` when the bed is currently active."
+      description: "Payload for `POST /patients`. Replaces the free-form `patient_number` operator-typed identifier with `bed_number` in 1..5 (the collector app's bed picker emits this). `replace_active_session` opts into an atomic replace of any active session on the same bed; absent or `false` returns `409 bed_now_occupied` when the bed is currently active."
       required: [bed_number, device_model, os_version]
       properties:
         bed_number: { type: integer, minimum: 1, maximum: 5, description: "Selected bed in 1..5 (PoC hardcoded range).", examples: [3] }
-        device_model: { type: string, examples: ["samsung SM-R870"] }
-        os_version: { type: string, examples: ["16 (API 36)"] }
+        device_model: { type: string, examples: ["Pixel 8"] }
+        os_version: { type: string, examples: ["Android 14"] }
         replace_active_session: { type: boolean, default: false, description: "When `true`, atomically deactivates the active session on the same bed and creates a new one. When `false` (default), the request is refused with `409 bed_now_occupied` if the bed is active." }
     BedSnapshot:
       type: object
@@ -231,32 +231,16 @@ components:
       maxItems: 5
     MeasurementBatch:
       type: object
-      description: "One measurement submitted by the watch. Either or both vital signs may be null if the sensor failed."
+      description: "One band measurement submitted by the collector app. Heart rate, IBI and ECG come from the Polar H10; each may be null when the band does not provide it."
       required: [local_id, timestamp]
       properties:
         local_id:     { type: string, format: uuid, description: "Client-generated UUID v4. Idempotency key. The backend unique-constraints on `(patient_id, local_id)`." }
         timestamp:    { type: string, format: date-time, description: "ISO 8601 with timezone, within the last 24 hours and not more than 5 minutes in the future." }
-        heart_rate_bpm: { type: [integer, "null"], minimum: 1, maximum: 299, description: "Heart rate in BPM. `null` if the sensor failed." }
-        spo2_percent:   { type: [number, "null"], exclusiveMinimum: 0, maximum: 100, description: "SpO2 percentage (0-100). `null` if the sensor failed." }
+        heart_rate_bpm: { type: [integer, "null"], minimum: 1, maximum: 299, description: "Heart rate in BPM. `null` when the band does not provide it." }
         ibis_ms:
           type: [array, "null"]
           items: { type: integer, minimum: 1, maximum: 5000 }
-          description: "Inter-beat intervals in milliseconds (Samsung Health Sensor SDK IBI_LIST). `null` for devices that do not expose IBI samples. Per-item clamp `[1, 5000]` matches the Pydantic field validator."
-        ibis_status:
-          type: [array, "null"]
-          items: { type: integer, minimum: -1, maximum: 2147483647 }
-          default: null
-          description: "Samsung IBI status. 0=valid beat, -1=error/noise. Beats with status==-1 are persisted as-is for downstream filtering; per-display filtering is the consumer's responsibility."
-        hr_status:
-          type: [integer, "null"]
-          enum: [-999, -10, -8, -3, -2, 0, 1, null]
-          default: null
-          description: "Samsung HEART_RATE_STATUS per-reading lifecycle code (feat-watch-hr-status-surface). Documented in the Samsung API Reference at `ValueKey.HeartRateSet.html`. Valid values: `1` = successful HR measurement, `0` = initial state OR a higher-priority sensor (e.g. BIA) operating, `-2` = wearable movement detected, `-3` = wearable detached (off-wrist), `-8` = PPG signal weak / user moved, `-10` = PPG signal too weak / too much motion, `-999` = a higher-priority sensor (e.g. BIA) operating. `null` when the SDK did not provide a status for this batch."
-        source:
-          type: string
-          enum: [samsung_watch, polar_h10]
-          default: samsung_watch
-          description: "Measurement source (polar-h10-validation). `samsung_watch` = Samsung Health Sensor SDK pipeline, `polar_h10` = Polar H10 chest strap via BLE GATT. Old clients omit it and ingest as `samsung_watch`."
+          description: "Inter-beat intervals in milliseconds from the Polar H10 band (RR intervals). `null` when the band does not expose IBI samples. Per-item clamp `[1, 5000]` matches the Pydantic field validator."
         ecg_sample_rate_hz:
           type: [integer, "null"]
           enum: [130, null]
@@ -279,14 +263,14 @@ components:
             received_at: { type: string, format: date-time, description: "Server-assigned ingestion timestamp." }
     BatchResponse:
       type: object
-      description: "The watch deletes local Room rows ONLY for `local_id`s in `accepted_ids` (delete-after-echo)."
+      description: "The collector app deletes locally stored rows ONLY for `local_id`s in `accepted_ids` (delete-after-echo)."
       required: [accepted_ids, rejected]
       properties:
-        accepted_ids: { type: array, items: { type: string, format: uuid }, description: "The `local_id`s the backend persisted (or no-op-deduped). The watch deletes these." }
+        accepted_ids: { type: array, items: { type: string, format: uuid }, description: "The `local_id`s the backend persisted (or no-op-deduped). The collector app deletes these." }
         rejected:     { type: array, items: { $ref: "#/components/schemas/RejectedMeasurement" } }
     RejectedMeasurement:
       type: object
-      description: "One item the backend refused. The watch keeps the Room row for inspection/retry."
+      description: "One item the backend refused. The collector app keeps the local row for inspection/retry."
       required: [local_id, reason]
       properties:
         local_id: { type: string, format: uuid }

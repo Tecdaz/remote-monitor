@@ -33,7 +33,7 @@ def _registration(
     bed_number: int = 3,
     *,
     replace_active_session: bool = False,
-    device_model: str = "samsung SM-R870",
+    device_model: str = "Pixel 8",
     os_version: str = "16 (API 36)",
 ) -> dict:
     """A valid ``RegisterPatientRequest`` payload (bed-picker shape)."""
@@ -107,7 +107,7 @@ class TestPatientsRouter:
         # The Patient schema's patient_number is the DECRYPTED bed
         # ciphertext. For bed 3 the plaintext is "3".
         assert body["patient_number"] == "3"
-        assert body["device_model"] == "samsung SM-R870"
+        assert body["device_model"] == "Pixel 8"
         assert body["is_active"] is True
         # patient_id is server-assigned.
         UUID(body["patient_id"])

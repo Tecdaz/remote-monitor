@@ -44,7 +44,7 @@ async def _seed_active_session(
         await session.execute(
             pg_insert(ClinicalPatient).values(
                 patient_id=pid,
-                device_model="samsung SM-R870",
+                device_model="Pixel 8",
                 os_version="16 (API 36)",
                 is_active=True,
                 bed_number=bed_number,

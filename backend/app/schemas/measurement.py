@@ -2,6 +2,10 @@
 
 Sourced from ``contracts/openapi.yaml#/components/schemas/{Measurement,
 MeasurementBatch, BatchResponse, RejectedMeasurement}``.
+
+Band-only contract (S1/S2): every measurement comes from the Polar H10
+band. The watch-only fields are gone; ``extra="forbid"`` rejects old
+payloads that still send them.
 """
 from __future__ import annotations
 
@@ -12,9 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MeasurementBatch(BaseModel):
-    """One measurement submitted by the watch.
+    """One band measurement submitted by the collector app.
 
-    Either or both vital signs may be null if the sensor failed.
+    Heart rate, IBI and ECG come from the Polar H10. Each may be null
+    when the band does not provide it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -37,69 +42,21 @@ class MeasurementBatch(BaseModel):
         None,
         ge=1,
         le=299,
-        description="Heart rate in BPM. `null` if the sensor failed.",
+        description="Heart rate in BPM. `null` if the band did not provide it.",
     )
-    spo2_percent: float | None = Field(
-        None,
-        gt=0,
-        le=100,
-        description="SpO2 percentage (0-100). `null` if the sensor failed.",
-    )
-    # Raw IBI array from the Samsung sensor — delivered as-is,
-    # no transformation. `None` when the device does not provide IBI.
+    # Raw IBI array from the Polar H10 band — delivered as-is,
+    # no transformation. `None` when the band does not provide IBI.
     ibis_ms: list[int] | None = Field(
         default=None,
-        description="Raw inter-beat intervals in milliseconds (Samsung IBI_LIST).",
-    )
-    # Per-beat quality flags from Samsung IBI_STATUS_LIST (SDK >= 1.2.0):
-    # 0 = normal/valid beat; -1 = error/noise. Noisy beats are persisted
-    # as-is; filtering is a display-layer concern.
-    ibis_status: list[int] | None = Field(
-        default=None,
-        description=(
-            "Samsung IBI status. 0=valid beat, -1=error/noise. "
-            "Beats with status==-1 are persisted as-is for downstream "
-            "filtering; per-display filtering is the consumer's "
-            "responsibility."
-        ),
-    )
-    # feat-watch-hr-status-surface: Samsung HEART_RATE_STATUS per-reading
-    # lifecycle code. Documented values live in the Samsung API Reference
-    # (`ValueKey.HeartRateSet.html`):
-    #   1  = successful HR measurement
-    #   0  = initial state, OR a higher-priority sensor (e.g. BIA) operating
-    #  -2  = wearable movement detected
-    #  -3  = wearable detached (off-wrist)
-    #  -8  = PPG signal weak / user moved
-    #  -10 = PPG signal too weak / too much motion
-    #  -999 = a higher-priority sensor (e.g. BIA) operating
-    # `None` when the SDK did not provide a status for this batch.
-    hr_status: int | None = Field(
-        default=None,
-        description=(
-            "Samsung HEART_RATE_STATUS per-reading lifecycle code. "
-            "Documented values: 1=success, 0=initial/BIA, -2=movement, "
-            "-3=off-wrist, -8=weak PPG, -10=too weak, -999=BIA. "
-            "Null when the SDK did not provide a status."
-        ),
+        description="Raw inter-beat intervals in milliseconds (Polar H10 RR intervals).",
     )
 
-    # polar-h10-validation: per-row source discriminator. Old watch
-    # builds send no `source`, so it defaults to the Samsung pipeline.
-    source: str = Field(
-        default="samsung_watch",
-        description=(
-            "Measurement source: `samsung_watch` (Samsung Health Sensor "
-            "SDK) or `polar_h10` (Polar H10 chest strap via BLE GATT)."
-        ),
-    )
-
-    # polar-ecg-integration: Polar H10 ECG snippet — 10 s @ 130 Hz =
+    # Polar H10 ECG snippet — 10 s @ 130 Hz =
     # 1300 voltages in µV. `None` on every non-ECG row. Rows carrying
-    # ECG have `heart_rate_bpm = None` and `source = 'polar_h10'`;
-    # they are validation strips, not vital signs. The rate is
-    # declared first so the `ecg_uv` validator below can read it from
-    # `info.data` (Pydantic validates fields in definition order).
+    # ECG have `heart_rate_bpm = None`; they are validation strips,
+    # not vital signs. The rate is declared first so the `ecg_uv`
+    # validator below can read it from `info.data` (Pydantic validates
+    # fields in definition order).
     ecg_sample_rate_hz: int | None = Field(
         default=None,
         description="Sample rate of `ecg_uv` in Hz (H10 ECG: 130).",
@@ -118,59 +75,11 @@ class MeasurementBatch(BaseModel):
         if v is None:
             return v
         for x in v:
-            # Samsung SDK uses 0 as a sentinel for "no IBI data" within
-            # the list; we reject it at the boundary so the array is
-            # uniformly in [1, 5000] for downstream HRV math.
+            # A 0 entry means "no IBI data" for that beat; we reject it
+            # at the boundary so the array is uniformly in [1, 5000]
+            # for downstream HRV math.
             if not (1 <= x <= 5000):
                 raise ValueError(f"ibis_ms value {x} out of [1, 5000]")
-        return v
-
-    @field_validator("ibis_status")
-    @classmethod
-    def _validate_ibis_status(cls, v: list[int] | None, info) -> list[int] | None:
-        if v is None:
-            return v
-        ibis = info.data.get("ibis_ms")
-        if ibis is not None and len(v) != len(ibis):
-            raise ValueError("ibis_status length must match ibis_ms")
-        for x in v:
-            # Samsung convention: 0 = normal, -1 = error. We accept the
-            # documented sentinel plus any non-negative value as a future-
-            # proof upper bound (e.g. additional error codes the SDK may
-            # introduce in later releases).
-            if not (-1 <= x <= 2_147_483_647):
-                raise ValueError(f"ibis_status value {x} out of [-1, 2147483647]")
-        return v
-
-    @field_validator("hr_status")
-    @classmethod
-    def _validate_hr_status(cls, v: int | None) -> int | None:
-        # feat-watch-hr-status-surface: enforce the Samsung-documented
-        # enumeration so a stale or buggy client that sends an unknown
-        # code (e.g. a future SDK release adding a new sentinel) gets
-        # rejected at the boundary rather than silently corrupting the
-        # analytics dataset. The set is closed; if Samsung adds a new
-        # code, this validator is the one and only place to extend it.
-        if v is None:
-            return v
-        if v not in {-999, -10, -8, -3, -2, 0, 1}:
-            raise ValueError(
-                f"hr_status value {v} not in Samsung-documented set "
-                f"{{-999, -10, -8, -3, -2, 0, 1}}"
-            )
-        return v
-
-    @field_validator("source")
-    @classmethod
-    def _validate_source(cls, v: str) -> str:
-        # polar-h10-validation: closed set so a typo'd source can never
-        # silently merge two validation streams. Extend here if a third
-        # artifact joins the comparison.
-        if v not in {"samsung_watch", "polar_h10"}:
-            raise ValueError(
-                "source value "
-                f"{v!r} not in {{'samsung_watch', 'polar_h10'}}"
-            )
         return v
 
     @field_validator("ecg_sample_rate_hz")
@@ -226,7 +135,7 @@ class Measurement(MeasurementBatch):
 
 
 class RejectedMeasurement(BaseModel):
-    """One item the backend refused. The watch keeps the Room row."""
+    """One item the backend refused. The collector app keeps the local row."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -238,7 +147,7 @@ class RejectedMeasurement(BaseModel):
 
 
 class BatchResponse(BaseModel):
-    """The watch deletes local Room rows ONLY for ``local_id``s in ``accepted_ids``."""
+    """The collector app deletes local rows ONLY for ``local_id``s in ``accepted_ids``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -246,7 +155,7 @@ class BatchResponse(BaseModel):
         ...,
         description=(
             "The `local_id`s the backend persisted (or no-op-deduped). "
-            "The watch deletes these."
+            "The collector app deletes these."
         ),
     )
     rejected: list[RejectedMeasurement] = Field(

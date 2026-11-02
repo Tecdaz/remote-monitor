@@ -1,4 +1,4 @@
-"""``clinical.measurements``: per-vital-sign reading from the watch.
+"""``clinical.measurements``: per-reading Polar H10 band measurement.
 
 UNIQUE(patient_id, local_id) is the DB-layer idempotency key
 (REQ-SCHEMA-03): re-ingest of the same (patient_id, local_id) is a
@@ -8,10 +8,9 @@ ingest service (PR3 T3.2).
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,7 +18,7 @@ from app.models import Base
 
 
 class ClinicalMeasurement(Base):
-    """``clinical.measurements``: one heart-rate / SpO2 sample."""
+    """``clinical.measurements``: one Polar H10 band reading."""
 
     __tablename__ = "measurements"
     __table_args__ = (
@@ -50,45 +49,19 @@ class ClinicalMeasurement(Base):
         nullable=False,
     )
     heart_rate_bpm: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    spo2_percent: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=None,  # server default is added by the migration
     )
-    # Raw IBI array from the Samsung sensor, delivered as-is.
-    # Stored as `bigint[]`. NULL when the device does not expose IBI.
+    # Raw IBI array from the Polar H10 band, delivered as-is.
+    # Stored as `bigint[]`. NULL when the band does not expose IBI.
     ibis_ms: Mapped[list[int] | None] = mapped_column(
         ARRAY(BigInteger), nullable=True
     )
-    # Per-beat quality flags from the Samsung sensor.
-    # 0 = normal/valid beat (accept), -1 = error/invalid beat (reject).
-    # Mirrors the Samsung Health IBI_STATUS_LIST convention.
-    # Stored as `integer[]`. NULL when the device does not expose status,
-    # or when the status array length does not match `ibis_ms`.
-    ibis_status: Mapped[list[int] | None] = mapped_column(
-        ARRAY(Integer), nullable=True
-    )
-    # feat-watch-hr-status-surface: per-reading lifecycle code from the
-    # Samsung `HEART_RATE_STATUS` field. Documented values (Samsung API
-    # Reference `ValueKey.HeartRateSet.html`): `1` = success, `0` = initial
-    # or BIA operating, `-2` = movement, `-3` = off-wrist, `-8` = weak PPG,
-    # `-10` = too weak, `-999` = BIA operating. NULL when the SDK did not
-    # provide a status for this batch. Stored as plain nullable Integer
-    # (no array, no range — the Pydantic layer enforces the value set).
-    hr_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # polar-h10-validation: per-row source discriminator. Non-null with
-    # a Samsung server default so pre-T3 rows backfill cleanly; the
-    # Pydantic layer enforces the closed value set.
-    source: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
-        default="samsung_watch",
-        server_default="samsung_watch",
-    )
-    # polar-ecg-integration: Polar H10 ECG snippet — 10 s @ 130 Hz =
+    # Polar H10 ECG snippet — 10 s @ 130 Hz =
     # 1300 voltages in µV. Stored as `integer[]`. NULL on every
-    # non-ECG row. Rows carrying ECG have `heart_rate_bpm = NULL` and
-    # `source = 'polar_h10'`; they are validation strips, not vitals.
+    # non-ECG row. Rows carrying ECG have `heart_rate_bpm = NULL`;
+    # they are validation strips, not vitals.
     ecg_uv: Mapped[list[int] | None] = mapped_column(
         ARRAY(Integer), nullable=True
     )

@@ -42,8 +42,8 @@ class Patient(BaseModel):
             "MIIBiQYJKoZIhvcNAQDo+0D+lpNbQEDdHJlYXRlZEBrE1lMrQECREMwBQYDK2VwBCMQOlhLVDc4WnB1djVxTEhNSjFQcmZQTlpMNlVrQVhxY3NQNFhmN2tVS2tGM1VxSlhVSmkrRmhKN0FLb0o3SFd6RHhLdlJZRHJLZkx4c1Q3Z2VBQ0FvM2JrR0tuZUFIZlpPMU9wNkhRK09wcG9WM2d2bXF1TGIya3RCVVZtVGh1YVk4PQECMB2jTFPleV9bscAtxA99JeUQiEYD6v6+arT3qUUEAQH/"
         ],
     )
-    device_model: str = Field(..., description="Watch hardware model.")
-    os_version: str = Field(..., description="Watch OS version string.")
+    device_model: str = Field(..., description="Collector host hardware model (watch, phone or tablet).")
+    os_version: str = Field(..., description="Collector host OS version string.")
     created_at: datetime = Field(
         ...,
         description="Server-assigned registration timestamp.",
@@ -83,12 +83,12 @@ class RegisterPatientRequest(BaseModel):
     )
     device_model: str = Field(
         ...,
-        description="Watch hardware model.",
-        examples=["samsung SM-R870"],
+        description="Collector host hardware model (watch, phone or tablet).",
+        examples=["Google Pixel 8"],
     )
     os_version: str = Field(
         ...,
-        description="Watch OS version string.",
+        description="Collector host OS version string.",
         examples=["16 (API 36)"],
     )
     replace_active_session: bool = Field(
