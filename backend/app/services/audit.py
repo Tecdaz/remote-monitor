@@ -3,7 +3,7 @@
 Every successful mutation that touches PII or clinical data MUST write
 exactly one row to ``audit.audit_log`` in the SAME transaction as the
 mutation. If the audit insert fails, the mutation rolls back; the
-watch never sees a success response for an un-audited write.
+collector app never sees a success response for an un-audited write.
 
 Implementation note: ``audit.audit_log.id`` and ``ts`` are NOT NULL but
 have no ``server_default`` in the PR2 0001_initial migration. Per

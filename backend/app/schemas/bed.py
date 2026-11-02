@@ -3,7 +3,7 @@
 Mirrors ``contracts/openapi.yaml#/components/schemas/{BedSnapshot,
 BedSnapshotList}`` exactly. The PoC bed universe is hardcoded to
 ``1..5``; the endpoint always returns five entries (even when no rows
-exist) so the watch can render the carousel without a separate
+exist) so the collector app can render the carousel without a separate
 "empty" code path.
 """
 from __future__ import annotations

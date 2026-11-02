@@ -25,7 +25,7 @@ function formatDateTime(value: string): string {
  * Top-of-page patient summary card.
  *
  * Bed number (resolved from the beds snapshot — never from the patient
- * record, since `patient_number` is PII), watch device metadata and an
+ * record, since `patient_number` is PII), collector host metadata and an
  * active/inactive badge. The badge surfaces the "just deactivated" hint
  * when the WebSocket pushed a `patient.deactivated` event during this
  * session so the operator does not mistake stale data for live data.

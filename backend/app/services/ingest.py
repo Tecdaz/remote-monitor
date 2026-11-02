@@ -9,7 +9,7 @@ enforces the following invariants:
 2. delete-after-echo (REQ-INGEST-02) — the ``BatchResponse`` is
    constructed AFTER ``session.commit()`` returns. If the commit
    fails, the caller sees a 5xx with empty ``accepted_ids`` and the
-   watch keeps its local rows.
+   collector app keeps its local rows.
 3. No partial commit (REQ-INGEST-03) — the whole batch lives inside
    one ``async with session.begin():`` block; any DB error rolls
    everything back, including the audit row.
@@ -196,7 +196,7 @@ async def upload_measurements(
     ``raw_items`` is the list of dicts the collector app sent. Each item is
     validated individually against ``MeasurementBatch``; invalid items
     land in ``BatchResponse.rejected`` with a human-readable reason
-    (the watch keeps those local rows). The valid items are committed
+    (the collector app keeps those local rows). The valid items are committed
     in a single transaction together with one ``audit.audit_log`` row.
 
     Returns ``BatchResponse`` ONLY after the commit succeeds. If the
@@ -211,7 +211,7 @@ async def upload_measurements(
             valid_items.append(MeasurementBatch.model_validate(raw))
         except ValidationError as exc:
             # Fall back to a fresh UUID if the bad payload omitted
-            # local_id so the watch still has a stable handle to keep.
+            # local_id so the collector app still has a stable handle.
             raw_local = raw.get("local_id") if isinstance(raw, dict) else None
             local_id = raw_local if isinstance(raw_local, UUID) else uuid4()
             rejected.append(
@@ -281,7 +281,7 @@ async def upload_measurements(
             )
 
         # Exactly one audit row per successful batch (REQ-SCHEMA-04).
-        # The count is the number of items the watch ATTEMPTED to
+        # The count is the number of items the collector app ATTEMPTED to
         # persist (the deduplicated ones are still in accepted_ids).
         await write_audit_log(
             session,

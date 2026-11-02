@@ -64,7 +64,7 @@ class Patient(BaseModel):
 class RegisterPatientRequest(BaseModel):
     """Payload for ``POST /api/v1/patients``.
 
-    The watch posts the operator-selected bed number (1..5) plus device
+    The collector app posts the operator-selected bed number (1..5) plus device
     metadata. ``replace_active_session`` opts into the atomic replace
     transaction (REQ-INGEST-09): when ``true``, any active session on
     the same bed is deactivated and a new one is created in the same

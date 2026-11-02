@@ -14,9 +14,9 @@ Endpoints:
 - ``GET /api/v1/beds`` — ``getBedSnapshot`` (REQ-READ-04). Returns
   five ``BedSnapshot`` entries (hardcoded 1..5).
 
-The watch usually auto-registers on the first ``uploadMeasurements``
+The collector app usually auto-registers on the first ``uploadMeasurements``
 (REQ-INGEST-07). ``POST /patients`` is the explicit pre-registration
-path the watch calls AFTER the operator confirms the bed selection in
+path the collector app calls after the operator confirms the bed selection in
 the picker dialog.
 """
 from __future__ import annotations
