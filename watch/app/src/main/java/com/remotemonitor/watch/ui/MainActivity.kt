@@ -67,6 +67,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Some vendor themes still inflate a framework ActionBar even
+        // when the manifest points at a NoActionBar theme. The Compose
+        // surface owns the whole window on phones/tablets, so hide it.
+        actionBar?.hide()
         // Keep the screen on while the app is the active collector. The
         // BLE link is owned by the foreground service, but a bedside
         // phone/tablet (and a watch) benefits from an always-on vitals

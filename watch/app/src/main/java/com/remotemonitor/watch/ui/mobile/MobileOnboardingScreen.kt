@@ -114,7 +114,7 @@ fun MobileOnboardingScreen(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(28.dp))
                             Text(
-                                text = stringResource(R.string.onboarding_section_label),
+                                text = stringResource(R.string.loading_beds),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

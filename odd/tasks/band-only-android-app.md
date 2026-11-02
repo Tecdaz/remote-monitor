@@ -50,7 +50,7 @@ feature branch; push/PR/merge are the owner's decision. Test runners:
 |---|---|---|---|---|---|
 | T1 | S1,S2,S3 | delegated | done | 8aff72d | backend 105 passed; migration head `remove_watch_only_fields`; four columns absent |
 | T2 | S1,S2,S5 | inline | done | a178b64 | Room v9 schema exported; Android 105 tests passed |
-| T3 | S4,S5,S6 | inline | done | a178b64 | Material 3 phone/tablet screens; manifest/FGS compiled into APK |
+| T3 | S4,S5,S6 | inline | done | a178b64 | Material 3 phone/tablet screens; manifest/FGS compiled into APK; Pixel 7 emulator shows 2 columns and a simulated 1600x2560 tablet shows 4 |
 | T4 | S1,S2,S3 | delegated | done | 1f7571d | frontend 60 tests passed; tsc clean |
 | T5 | S3 | inline | done | this docs commit | root README, docs, Makefile, scripts; watch/README lands with T2 (a178b64) |
 | T6 | S7 | inline | done | — | backend 105, Android 105, frontend 60, assembleDebug, migration round-trip |
@@ -59,4 +59,5 @@ feature branch; push/PR/merge are the owner's decision. Test runners:
 
 - **L1 (owner, verbatim):** "De ahora en adelante se usara como objeto de medicion la banda, Elimina toda la informacion que recolecta el reloj, actualiza la documentacion y expande la app para poder ser usada en moviles y tablets android"
 - **L2:** Scope decision asked and answered by the owner: "App Android recolectora" — convert the Wear OS app into an Android app that runs on watch, phone and tablet, reading the Polar H10 via BLE on any device. Remove the whole Samsung pipeline. The web dashboard stays as-is except for removing watch-only fields/filters.
+- **L4:** Emulator verification (Pixel 7, API 36): installed the debug APK, granted BLE/notification permissions, loaded five beds from the local backend, and confirmed the phone layout (2 columns, safe-area insets, no ActionBar). A simulated 1600x2560 @ 240 dpi tablet viewport rendered 4 columns. Screenshots are local artifacts under /tmp/opencode (not committed).
 - **L3:** Implementation decisions: (a) delete historical `source='samsung_watch'` rows in the Alembic migration and drop the four columns; (b) Room v9 rebuilds the table to preserve pending band rows; (c) `POLAR_DEVICE_ID` defaults to `"Polar H10"` so no build flag is needed; (d) phone/tablet use Material 3 screens selected by `PackageManager.FEATURE_WATCH`, watch hosts keep the Wear screens; (e) foreground service type changes from `health` to `connectedDevice` and the health permissions are removed. Commits: 8aff72d (backend/contracts), a178b64 (Android), 1f7571d (frontend).

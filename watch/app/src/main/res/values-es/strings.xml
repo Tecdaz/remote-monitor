@@ -13,6 +13,7 @@
 -->
 <resources>
     <string name="band_subtitle">Banda Polar H10</string>
+    <string name="loading_beds">Cargando camas…</string>
     <string name="sensor_connected">Banda conectada</string>
     <string name="sensor_off_wrist">Banda sin contacto</string>
     <string name="sensor_failed">Sin conexión con la banda</string>

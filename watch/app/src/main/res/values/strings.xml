@@ -5,6 +5,7 @@
 
     <!-- Band-only Android surface (phone/tablet). -->
     <string name="band_subtitle">Polar H10 band</string>
+    <string name="loading_beds">Loading beds…</string>
     <string name="sensor_connected">Band connected</string>
     <string name="sensor_off_wrist">Band not in contact</string>
     <string name="sensor_failed">No connection to the band</string>
