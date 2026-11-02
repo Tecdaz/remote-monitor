@@ -48,12 +48,12 @@ feature branch; push/PR/merge are the owner's decision. Test runners:
 
 | ID | Spec | Route | Status | Commit | Evidence |
 |---|---|---|---|---|---|
-| T1 | S1,S2,S3 | delegated | done | 8aff72d | backend 104 passed; migration head `remove_watch_only_fields`; four columns absent |
+| T1 | S1,S2,S3 | delegated | done | 8aff72d | backend 105 passed; migration head `remove_watch_only_fields`; four columns absent |
 | T2 | S1,S2,S5 | inline | done | a178b64 | Room v9 schema exported; Android 105 tests passed |
 | T3 | S4,S5,S6 | inline | done | a178b64 | Material 3 phone/tablet screens; manifest/FGS compiled into APK |
 | T4 | S1,S2,S3 | delegated | done | 1f7571d | frontend 60 tests passed; tsc clean |
 | T5 | S3 | inline | done | this docs commit | README, docs, Makefile, scripts, app README |
-| T6 | S7 | inline | done | — | backend 104, Android 105, frontend 60, assembleDebug, migration round-trip |
+| T6 | S7 | inline | done | — | backend 105, Android 105, frontend 60, assembleDebug, migration round-trip |
 
 ## Log
 

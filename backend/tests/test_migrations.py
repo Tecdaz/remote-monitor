@@ -105,6 +105,65 @@ async def test_migrations_head_has_no_watch_only_columns(
         assert kept in names, f"band column {kept} missing at head"
 
 
+async def test_migrations_remove_watch_only_fields_deletes_watch_rows(
+    round_trip_db: None,
+) -> None:
+    """S2: the head migration deletes samsung_watch rows, keeps band rows.
+
+    Stops at the previous revision, inserts one watch row and one band
+    row, then upgrades to head. The watch row must be gone and the band
+    row must survive.
+    """
+    import os
+
+    import asyncpg
+
+    dsn = os.environ.get(
+        "APP_DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/remote_monitor",
+    ).replace("postgresql+asyncpg", "postgresql")
+
+    _alembic("upgrade", "add_ecg_columns")
+    pid = "00000000-0000-0000-0000-000000000030"
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(
+            "INSERT INTO clinical.patients (patient_id, is_active, bed_number) "
+            "VALUES ($1, true, 1)",
+            pid,
+        )
+        await conn.execute(
+            "INSERT INTO clinical.measurements "
+            "(id, patient_id, local_id, timestamp, received_at, "
+            " heart_rate_bpm, source) VALUES "
+            "('00000000-0000-0000-0000-000000000031', $1, "
+            " '00000000-0000-0000-0000-000000000032', now(), now(), 70, "
+            " 'samsung_watch'), "
+            "('00000000-0000-0000-0000-000000000033', $1, "
+            " '00000000-0000-0000-0000-000000000034', now(), now(), 68, "
+            " 'polar_h10')",
+            pid,
+        )
+    finally:
+        await conn.close()
+
+    _alembic("upgrade", "head")
+
+    conn2 = await asyncpg.connect(dsn)
+    try:
+        rows = await conn2.fetch(
+            "SELECT heart_rate_bpm FROM clinical.measurements "
+            "WHERE patient_id = $1",
+            pid,
+        )
+    finally:
+        await conn2.close()
+
+    assert [row["heart_rate_bpm"] for row in rows] == [68], (
+        "the samsung_watch row must be deleted and the polar_h10 row kept"
+    )
+
+
 async def test_migrations_ecg_columns_round_trip(round_trip_db: None) -> None:
     """polar-ecg-integration: the new ``ecg_uv`` / ``ecg_sample_rate_hz``
     columns are added on upgrade and removed on downgrade.
