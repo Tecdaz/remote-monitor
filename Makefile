@@ -17,8 +17,9 @@ APK              := watch/app/build/outputs/apk/debug/app-debug.apk
 APP_PKG          := com.remotemonitor.watch
 NGROK_LOG        := /tmp/opencode/ngrok-logs/ngrok.log
 
-# Polar H10 device filter. Defaults to the strap name; override from the
-# command line for a specific device:
+# Polar H10 device filter (friendly name or BLE address substring).
+# Defaults to the strap name; override from the command line for a
+# specific device:
 #   make build POLAR_DEVICE_ID=H10_ABC123
 POLAR_DEVICE_ID  ?= Polar H10
 
@@ -76,7 +77,7 @@ help:
 	@echo "  make watch-clean-all    watch-clean + watch-grant"
 	@echo
 	@echo "Tests:"
-	@echo "  make test               run BOTH backend pytest + watch gradle tests"
+	@echo "  make test               run backend pytest + Android gradle tests + script syntax"
 	@echo "  make test-backend       pytest backend/tests"
 	@echo "  make test-watch         ./gradlew :app:testDebugUnitTest"
 	@echo
@@ -218,6 +219,10 @@ build:
 		echo "ERROR: NGROK_PUBLIC_URL missing in $(BACKEND_ENV_FILE)"; \
 		exit 1; \
 	fi
+	@if [ -z "$(strip $(POLAR_DEVICE_ID))" ]; then \
+		echo "ERROR: POLAR_DEVICE_ID is empty. Set the band name/address or unset it to use the default."; \
+		exit 1; \
+	fi
 	@echo "Building APK with apiBaseUrl=$(NGROK_URL) polarDeviceId=$(POLAR_DEVICE_ID)"
 	cd watch && ./gradlew :app:assembleDebug -PapiBaseUrl="$(NGROK_URL)" -PpolarDeviceId="$(POLAR_DEVICE_ID)" --no-daemon
 	@echo "Built: $(APK)"
@@ -272,7 +277,7 @@ watch-clean-all: watch-clean watch-grant
 	@echo "App state reset + BLE permissions granted."
 
 # --- Tests ----------------------------------------------------------------
-.PHONY: test test-backend test-watch
+.PHONY: test test-backend test-watch test-scripts
 test-backend:
 	@echo "=== backend pytest ==="
 	cd backend && uv run pytest -v
@@ -281,7 +286,11 @@ test-watch:
 	@echo "=== Android gradle test ==="
 	cd watch && ./gradlew :app:testDebugUnitTest --no-daemon
 
-test: test-backend test-watch
+test-scripts:
+	@echo "=== shell script syntax ==="
+	bash -n scripts/start-test-e2e.sh scripts/start-test-stack.sh scripts/smoke_bed_replace.sh
+
+test: test-backend test-watch test-scripts
 	@echo
 	@echo "All tests passed."
 

@@ -104,7 +104,8 @@ cp backend/.env.test.example backend/.env.test
 > **Vía canónica para empezar de cero** (incluye wipe + migrate + smoke):
 > [`scripts/start-test-stack.sh`](scripts/start-test-stack.sh) (solo backend) o
 > [`scripts/start-test-e2e.sh`](scripts/start-test-e2e.sh) (también limpia
-> el dispositivo y automatiza el onboarding). Ambos leen `backend/.env.test` y
+> el dispositivo con adb inalámbrico y automatiza el onboarding; para USB
+> seguí los pasos manuales de §3). Ambos leen `backend/.env.test` y
 > ejecutan las migraciones de Alembic.
 
 ### 1. Backend + PostgreSQL + Frontend
@@ -157,7 +158,8 @@ usás ngrok, usá la IP local de tu red (`-PapiBaseUrl=http://192.168.1.X:8000/`
 
 La app se compila, instala y ejecuta con los targets del Makefile. Todos los
 comandos `adb` usan el target de `watch/.env.test` si está configurado; si no,
-podés exportar `ADB_SERIAL` o conectar el dispositivo por USB.
+conectá un solo dispositivo por USB (o usá `adb -s <serial>` en los comandos
+manuales).
 
 #### 3.1 Habilitar adb
 

@@ -30,7 +30,7 @@ feature branch; push/PR/merge are the owner's decision. Test runners:
 - **S4.** "expande la app para poder ser usada en moviles y tablets android."
   The Android collector app runs on Wear OS watches, Android phones and
   Android tablets. It ships watch-optimized Compose screens and Material 3
-  adaptive screens (1-2-3-4 column bed grid, large vitals card). The
+  adaptive screens (2-3-4 column bed grid, large vitals card). The
   manifest no longer requires `android.hardware.type.watch`, makes BLE
   required, and uses a `connectedDevice` foreground service instead of
   `health`.
@@ -52,7 +52,7 @@ feature branch; push/PR/merge are the owner's decision. Test runners:
 | T2 | S1,S2,S5 | inline | done | a178b64 | Room v9 schema exported; Android 105 tests passed |
 | T3 | S4,S5,S6 | inline | done | a178b64 | Material 3 phone/tablet screens; manifest/FGS compiled into APK |
 | T4 | S1,S2,S3 | delegated | done | 1f7571d | frontend 60 tests passed; tsc clean |
-| T5 | S3 | inline | done | this docs commit | README, docs, Makefile, scripts, app README |
+| T5 | S3 | inline | done | this docs commit | root README, docs, Makefile, scripts; watch/README lands with T2 (a178b64) |
 | T6 | S7 | inline | done | — | backend 105, Android 105, frontend 60, assembleDebug, migration round-trip |
 
 ## Log

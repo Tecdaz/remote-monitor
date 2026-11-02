@@ -31,8 +31,8 @@ el backend sella `received_at` y el frontend recibe el WebSocket en vivo.
 - **Cadencia de subida:** ~1 POST/s por dispositivo con datos.
 - **BPM + RR:** filas con `heart_rate_bpm` no nulo y `ibis_ms` no nulo a
   ~1 Hz. Huecos > 5 s indican caída de enlace o pausa del operador.
-- **ECG:** una tira de 1300 muestras por segundo en régimen
-  (`ecg_uv` no nulo, `ecg_sample_rate_hz = 130`).
+- **ECG:** una tira de 1300 muestras cada segundo (ventana de 10 s a
+  130 Hz) en régimen (`ecg_uv` no nulo, `ecg_sample_rate_hz = 130`).
 - **Off-wrist:** al retirar la banda, llegan lecturas nulas/ausentes y la
   UI muestra `Banda sin contacto`; al recolocarla, se recupera sin
   reiniciar la app.
@@ -71,11 +71,14 @@ WHERE patient_id = '<uuid>' AND ecg_uv IS NOT NULL;
 
 ## Criterio de aceptación operativo
 
-- Sin pérdida de filas en Room cuando el backend cae: el
-  `delete-after-echo` debe reintentar y recuperar el lote.
-- BPM/RR continuos en reposo, con huecos explicables por movimiento o
-  retirada de la banda.
-- ECG a 1 tira/s en régimen, con 1300 muestras y tasa 130.
-- Dashboard en vivo a ~1 Hz sin recargar la página.
-- El anfitrión (reloj, teléfono o tablet) no debe perder el enlace BLE
-  al apagar la pantalla; `SyncForegroundService` mantiene el proceso.
+- **Cobertura BPM/RR:** ≥ 90 % de las muestras esperadas a 1 Hz en una
+  ventana de 5 min de reposo, sin huecos > 5 s.
+- **ECG:** ≥ 0,9 tiras/s en la misma ventana, cada una con 1300 muestras
+  y `ecg_sample_rate_hz = 130`.
+- **Latencia:** p95 ≤ 5 s entre `timestamp` de la medición y su render en
+  el dashboard.
+- **Sin pérdida:** con el backend caído 2 min, Room conserva las filas y
+  las sube al recuperarse (`delete-after-echo`).
+- **BLE en segundo plano:** el anfitrión no pierde el enlace al apagar la
+  pantalla durante 5 min; `SyncForegroundService` mantiene el proceso.
+- **Dashboard en vivo:** ~1 Hz sin recargar la página.

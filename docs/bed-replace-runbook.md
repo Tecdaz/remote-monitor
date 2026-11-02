@@ -50,7 +50,8 @@ the §11 literal diffs and §12 gate-findings audit trail.
    - **Green** = the bed is free.
    - **Red** = the bed is currently occupied.
 
-4. Swipe to your bed and tap its badge.
+4. Select your bed: swipe to it and tap the badge on a watch, or tap the
+   bed card on a phone/tablet.
    - If **green**: the device POSTs immediately, the snackbar
      `Emparejado a la cama N` appears, and you land on **Home**.
    - If **red**: the `Cama ocupada` dialog opens. Read the body text

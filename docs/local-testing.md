@@ -5,9 +5,11 @@ backend local. La app corre en un reloj Wear OS, un teléfono o una tablet
 Android; el dispositivo de medición es siempre la banda Polar H10.
 
 > **Forma canónica de arrancar el entorno E2E:** usá
-> [`scripts/start-test-e2e.sh`](../scripts/start-test-e2e.sh).
-> Limpia la DB del backend, borra el estado de la app, otorga los permisos
-> de BLE y notificaciones, y automatiza el onboarding.
+> [`scripts/start-test-e2e.sh`](../scripts/start-test-e2e.sh) con un
+> dispositivo conectado por **adb inalámbrico**. Limpia la DB del backend,
+> borra el estado de la app, otorga los permisos de BLE y notificaciones, y
+> automatiza el onboarding. Para un teléfono/tablet por USB, seguí los pasos
+> manuales de §4 y §5.
 >
 > **Solo backend:** [`scripts/start-test-stack.sh`](../scripts/start-test-stack.sh)
 > hace el wipe + migrate sin tocar el dispositivo.
@@ -101,6 +103,9 @@ APK: `watch/app/build/outputs/apk/debug/app-debug.apk`.
 
 ## 5. Instalar, otorgar permisos y abrir
 
+> Si hay más de un dispositivo conectado, agregá `-s <serial>` a cada
+> comando `adb` (o desconectá el resto).
+
 ```bash
 adb install -r watch/app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant com.remotemonitor.watch android.permission.BLUETOOTH_SCAN
@@ -144,7 +149,7 @@ adb logcat -d | grep -iE "PolarHrsProvider|PolarEcgProvider|okhttp|remotemonitor
 | Síntoma | Causa probable | Fix |
 |---|---|---|
 | No aparece el diálogo de permisos BLE | APK instalado sin los permisos nuevos | `adb shell pm grant` (ver §5) o reinstalar el APK |
-| `PolarHrsProvider` no encuentra la banda | Nombre/deviceId distinto o Location apagado en API ≤ 30 | Pasá `-PpolarDeviceId=...`; en API ≤ 30 activá Location |
+| `PolarHrsProvider` no encuentra la banda | El nombre/ID no coincide con la banda | Pasá `-PpolarDeviceId=...` con el nombre o la dirección BLE; el SO mínimo es API 33 |
 | La app no sube nada | `POLAR_DEVICE_ID` vacío o banda sin batería | Rebuild con el nombre correcto; revisá la banda |
 | Backend 422 | Cliente viejo enviando campos eliminados (`source`, `spo2_percent`, `ibis_status`, `hr_status`) | Reinstalar el APK actual; el backend usa `extra="forbid"` |
 | Backend 500 "Wrong key or corrupt data" | `APP_PII_ENCRYPTION_KEY` no coincide con filas existentes | `docker compose down -v` y re-migrar |
