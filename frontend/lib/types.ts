@@ -30,11 +30,7 @@ export interface Measurement {
   timestamp: string
   received_at: string
   heart_rate_bpm: number | null
-  spo2_percent: number | null
   ibis_ms: number[] | null
-  ibis_status: number[] | null
-  hr_status: number | null
-  source: 'samsung_watch' | 'polar_h10'
   /** Polar H10 ECG snippet in µV @ `ecg_sample_rate_hz` (null on non-ECG rows). */
   ecg_uv: number[] | null
   /** Sample rate of `ecg_uv` in Hz (H10: 130). */

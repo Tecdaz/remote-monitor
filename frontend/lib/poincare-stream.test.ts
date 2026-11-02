@@ -15,7 +15,7 @@ function beats(...pairs: Array<[number, number]>): Beat[] {
 
 describe('createPoincareStream', () => {
   it('rebuilds the full point set from history (matches computePoincare)', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     const history = beats(
       [1000, 800],
       [2000, 820],
@@ -34,14 +34,14 @@ describe('createPoincareStream', () => {
   })
 
   it('keeps an empty stream empty on rebuild([])', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild([])
     expect(stream.size()).toBe(0)
     expect(stream.points()).toEqual([])
   })
 
   it('appending a single beat adds exactly one cross-boundary point', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820], [3000, 900]))
     expect(stream.size()).toBe(2)
 
@@ -57,7 +57,7 @@ describe('createPoincareStream', () => {
   })
 
   it('preserves the live points array during an append without capping', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820]))
     const points = stream.points()
 
@@ -68,7 +68,7 @@ describe('createPoincareStream', () => {
   })
 
   it('appending N beats adds exactly one cross-boundary plus N-1 intra-batch points', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820]))
     expect(stream.size()).toBe(1)
 
@@ -87,7 +87,7 @@ describe('createPoincareStream', () => {
   })
 
   it('appending into an empty stream adds only intra-batch pairs (no boundary)', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     const result = stream.append(beats([1000, 800], [2000, 820], [3000, 900]))
 
     expect(result).toBe('appended')
@@ -99,7 +99,7 @@ describe('createPoincareStream', () => {
   })
 
   it('appending an empty batch is a no-op', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820]))
 
     const before = stream.points().slice()
@@ -110,7 +110,7 @@ describe('createPoincareStream', () => {
   })
 
   it('duplicate input (same first beat) requests a rebuild instead of duplicating', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820], [3000, 900]))
     const before = stream.points().slice()
     const beforeSize = stream.size()
@@ -123,7 +123,7 @@ describe('createPoincareStream', () => {
   })
 
   it('duplicate boundary single beat (timestamp equals last retained) requests rebuild without mutation', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820], [3000, 900]))
     const beforePoints = stream.points().slice()
     const beforeSize = stream.size()
@@ -137,7 +137,7 @@ describe('createPoincareStream', () => {
   })
 
   it('out-of-order input requests a rebuild without mutating state', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820], [3000, 900]))
     const beforePoints = stream.points().slice()
     const beforeSize = stream.size()
@@ -150,7 +150,7 @@ describe('createPoincareStream', () => {
   })
 
   it('non-increasing timestamps inside the batch request rebuild without mutation', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820]))
     const beforePoints = stream.points().slice()
     const beforeSize = stream.size()
@@ -165,7 +165,7 @@ describe('createPoincareStream', () => {
   })
 
   it('equal adjacent timestamps inside the batch request rebuild without mutation', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820]))
     const beforePoints = stream.points().slice()
     const beforeSize = stream.size()
@@ -179,8 +179,8 @@ describe('createPoincareStream', () => {
     expect(stream.points()).toEqual(beforePoints)
   })
 
-  it('mode change resets the stream and rebuilds from the new history', () => {
-    const stream = createPoincareStream({ mode: 'raw' })
+  it('setHistory resets the stream and rebuilds from the new history', () => {
+    const stream = createPoincareStream({})
     const rawHistory = beats(
       [1000, 800],
       [2000, 820],
@@ -189,17 +189,15 @@ describe('createPoincareStream', () => {
     )
     stream.rebuild(rawHistory)
     expect(stream.size()).toBe(3)
-    expect(stream.mode).toBe('raw')
 
-    // Simulate filtered mode dropping the middle beat.
-    const filteredHistory = beats(
+    // Simulate a re-filtered history dropping one beat.
+    const nextHistory = beats(
       [1000, 800],
       [3000, 900],
       [4000, 870],
     )
-    stream.setMode('filtered', filteredHistory)
+    stream.setHistory(nextHistory)
 
-    expect(stream.mode).toBe('filtered')
     expect(stream.size()).toBe(2)
     expect(stream.points()).toEqual([
       { x: 800, y: 900, timestampMs: 3000 },
@@ -207,18 +205,17 @@ describe('createPoincareStream', () => {
     ])
   })
 
-  it('reset() clears state but preserves mode', () => {
-    const stream = createPoincareStream({ mode: 'filtered' })
+  it('reset() clears state', () => {
+    const stream = createPoincareStream({})
     stream.rebuild(beats([1000, 800], [2000, 820]))
     stream.reset()
 
     expect(stream.size()).toBe(0)
     expect(stream.points()).toEqual([])
-    expect(stream.mode).toBe('filtered')
   })
 
   it('caps the retained points to maxPoints, dropping the oldest first', () => {
-    const stream = createPoincareStream({ mode: 'raw', maxPoints: 4 })
+    const stream = createPoincareStream({ maxPoints: 4 })
     const history: Beat[] = []
     for (let i = 0; i < 10; i++) {
       history.push(beat(1000 + i * 100, 800 + i))
@@ -241,7 +238,7 @@ describe('createPoincareStream', () => {
   })
 
   it('caps apply on append as well as on rebuild', () => {
-    const stream = createPoincareStream({ mode: 'raw', maxPoints: 3 })
+    const stream = createPoincareStream({ maxPoints: 3 })
     stream.rebuild(beats([1000, 800], [2000, 810]))
     // 1 existing point.
 
@@ -271,7 +268,7 @@ describe('createPoincareStream', () => {
     // Build a chronological history, then replay it through the stream
     // one batch at a time. The final point set must equal the points that
     // computePoincare would produce over the same total history.
-    const stream = createPoincareStream({ mode: 'raw' })
+    const stream = createPoincareStream({})
 
     const fullHistory: Beat[] = []
     const batches: Beat[][] = []

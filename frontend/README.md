@@ -48,6 +48,16 @@ changing any token — every color has a bounded role.
 | Border-radius | 24px on all interactive surfaces |
 | Numerics | Fira Code, tabular |
 
+## Data source — band only
+
+The dashboard consumes only Polar H10 band data. Every measurement row
+carries `heart_rate_bpm`, `ibis_ms` (RR intervals), and optionally a
+10 s ECG snippet (`ecg_uv` @ `ecg_sample_rate_hz`, 130 Hz). There is no
+device filter and no raw/filtered beat toggle: every beat is kept and
+rendered, and beats outside 300–2000 ms or jumping > 20 % vs. the
+previous beat are highlighted as anomalies. Transport-level duplicate
+rows (same timestamp, BPM and IBI array) collapse to the first one.
+
 ## Real-time pattern — `queryClient.setQueryData`
 
 The dashboard never polls. The WebSocket client receives pushed

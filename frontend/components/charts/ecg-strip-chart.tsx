@@ -23,12 +23,11 @@ interface EcgStripChartProps {
 }
 
 /**
- * Polar H10 ECG validation strip (polar-ecg-integration T4).
+ * Polar H10 ECG validation strip.
  *
- * Renders the newest 10 s @ 130 Hz snippet (`source='polar_h10'`
- * rows) as µV vs. sample index. Validation artifact, not a vital
- * sign: it grounds the Samsung IBI/HRV against the chest-strap
- * reference. Empty until the first strip arrives over REST/WS.
+ * Renders the newest 10 s @ 130 Hz snippet carried by band rows as
+ * µV vs. sample index. Empty until the first strip arrives over
+ * REST/WS.
  *
  * Realtime note: the strip only changes when a new 10 s snippet
  * arrives (~0.1 Hz), but the parent re-renders on every 1 Hz

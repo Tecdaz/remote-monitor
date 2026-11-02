@@ -1,4 +1,4 @@
-import type { BeatMode, PoincarePoint } from './signal-processing'
+import type { PoincarePoint } from './signal-processing'
 
 export interface Beat {
   timestampMs: number
@@ -10,7 +10,6 @@ export interface TemporalPoincarePoint extends PoincarePoint {
 }
 
 export interface PoincareStreamOptions {
-  mode: BeatMode
   /**
    * Hard cap on retained points. Oldest points (and the leading beats that
    * generated them) are dropped first. Defaults to `DEFAULT_POINCARE_MAX_POINTS`.
@@ -23,7 +22,6 @@ export const DEFAULT_POINCARE_MAX_POINTS = 600
 export type AppendResult = 'appended' | 'rebuild_required'
 
 export interface PoincareStream {
-  readonly mode: BeatMode
   points(): TemporalPoincarePoint[]
   size(): number
   /**
@@ -40,10 +38,10 @@ export interface PoincareStream {
   append(beats: readonly Beat[]): AppendResult
   /** Rebuild the stream from a full history of beats in chronological order. */
   rebuild(history: readonly Beat[]): void
-  /** Reset to empty state. Mode is preserved. */
+  /** Reset to empty state. */
   reset(): void
-  /** Update mode and rebuild from the supplied history. */
-  setMode(mode: BeatMode, history: readonly Beat[]): void
+  /** Rebuild from the supplied history (replaces mode switching). */
+  setHistory(history: readonly Beat[]): void
 }
 
 /**
@@ -59,7 +57,6 @@ export interface PoincareStream {
  */
 export function createPoincareStream(opts: PoincareStreamOptions): PoincareStream {
   const maxPoints = opts.maxPoints ?? DEFAULT_POINCARE_MAX_POINTS
-  let mode: BeatMode = opts.mode
   let beats: Beat[] = []
   let points: TemporalPoincarePoint[] = []
 
@@ -127,9 +124,6 @@ export function createPoincareStream(opts: PoincareStreamOptions): PoincareStrea
   }
 
   return {
-    get mode() {
-      return mode
-    },
     points() {
       return points
     },
@@ -142,8 +136,7 @@ export function createPoincareStream(opts: PoincareStreamOptions): PoincareStrea
       beats = []
       points = []
     },
-    setMode(newMode: BeatMode, history: readonly Beat[]) {
-      mode = newMode
+    setHistory(history: readonly Beat[]) {
       rebuild(history)
     },
   }

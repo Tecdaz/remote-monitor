@@ -16,7 +16,6 @@ import {
 import {
   computePSD,
   HRV_BANDS,
-  type BeatMode,
 } from '../../lib/signal-processing'
 import type { Measurement } from '../../lib/types'
 import {
@@ -33,7 +32,6 @@ import {
 
 interface FrequencyChartProps {
   measurements: Measurement[]
-  mode: BeatMode
 }
 
 const BAND_LEGEND: Array<{
@@ -56,11 +54,11 @@ const PSD_REFRESH_MS = 5_000
  *
  * Realtime note: HRV bands are stable over minutes, so the PSD is NOT
  * recomputed on every 1 Hz WebSocket tick. It refreshes at most every
- * 5 s (`PSD_REFRESH_MS`), when the mode changes, or when the cache
- * fingerprint changes (device toggle). This keeps the 1 Hz tachogram
- * fluid while the spectrum follows seconds later.
+ * 5 s (`PSD_REFRESH_MS`), or when the cache fingerprint changes.
+ * This keeps the 1 Hz tachogram fluid while the spectrum follows
+ * seconds later.
  */
-export function FrequencyChart({ measurements, mode }: FrequencyChartProps) {
+export function FrequencyChart({ measurements }: FrequencyChartProps) {
   const measRef = useRef(measurements)
   measRef.current = measurements
 
@@ -74,9 +72,9 @@ export function FrequencyChart({ measurements, mode }: FrequencyChartProps) {
   const fingerprint = `${measurements.length}|${measurements[0]?.id ?? ''}|${measurements[measurements.length - 1]?.id ?? ''}`
 
   const bins = useMemo(
-    () => computePSD(measRef.current, mode),
+    () => computePSD(measRef.current),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, timeBucket, fingerprint],
+    [timeBucket, fingerprint],
   )
   const displayBins = useMemo(
     () => bins.filter((b) => b.frequency <= 0.5),

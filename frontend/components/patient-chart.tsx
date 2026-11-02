@@ -1,7 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ConnectionPill } from './charts/connection-pill'
-import { DeviceToggle } from './charts/device-toggle'
-import { ModeToggle } from './charts/mode-toggle'
 import {
   PatientHeader,
   PatientHeaderSkeleton,
@@ -18,21 +16,12 @@ import { patientKey } from '../lib/query-keys'
 
 /**
  * Top-level clinical dashboard for a single patient. Pulls the realtime
- * WebSocket connection, the patient metadata, and the IBI measurement
- * cache, then renders the three chart cards in a calm light surface.
+ * WebSocket connection, the patient metadata, and the band IBI measurement
+ * cache, then renders the chart cards in a calm light surface.
  */
 export function ChartView({ patientId }: { patientId: string }) {
   const queryClient = useQueryClient()
-  const {
-    measurements,
-    isLoading,
-    mode,
-    setMode,
-    device,
-    setDevice,
-    hasStatusData,
-    effectiveMode,
-  } = usePatientChart(patientId)
+  const { measurements, isLoading } = usePatientChart(patientId)
 
   const { connectionState, justDeactivated } = usePatientWebSocket(patientId, queryClient)
 
@@ -68,18 +57,7 @@ export function ChartView({ patientId }: { patientId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <ConnectionPill state={connectionState} />
-          {!hasStatusData && measurements.length > 0 ? (
-            <span className="text-xs text-clinical-inkFaint">
-              Calidad de señal no disponible
-            </span>
-          ) : null}
         </div>
-        <ModeToggle
-          mode={effectiveMode}
-          onChange={setMode}
-          disabled={!hasStatusData}
-        />
-        <DeviceToggle device={device} onChange={setDevice} />
       </div>
 
       {isLoading && measurements.length === 0 ? (
@@ -104,12 +82,11 @@ export function ChartView({ patientId }: { patientId: string }) {
         <div className="grid gap-5">
           <TachogramChart
             measurements={measurements}
-            mode={effectiveMode}
             connectionState={connectionState}
           />
           <EcgStripChart measurements={measurements} />
-          <PoincareChart measurements={measurements} mode={effectiveMode} />
-          <FrequencyChart measurements={measurements} mode={effectiveMode} />
+          <PoincareChart measurements={measurements} />
+          <FrequencyChart measurements={measurements} />
         </div>
       )}
     </div>

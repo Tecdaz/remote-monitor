@@ -17,7 +17,6 @@ import {
 } from '../../lib/clinical-format'
 import {
   selectIBISeries,
-  type BeatMode,
   type PoincarePoint,
 } from '../../lib/signal-processing'
 import {
@@ -41,7 +40,6 @@ import {
 
 interface PoincareChartProps {
   measurements: Measurement[]
-  mode: BeatMode
 }
 
 type PoincareTooltipProps = TooltipProps<number, string>
@@ -117,8 +115,8 @@ function createTemporalCircleShape(
  * measurement-shape → beat-list conversion so the stream only deals with
  * a stable input.
  */
-function flattenMeasurements(measurements: Measurement[], mode: BeatMode): Beat[] {
-  const { times, ibis } = selectIBISeries(measurements, mode)
+function flattenMeasurements(measurements: Measurement[]): Beat[] {
+  const { times, ibis } = selectIBISeries(measurements)
   const beats: Beat[] = []
   for (let i = 0; i < times.length; i++) {
     beats.push({ timestampMs: times[i], ibiMs: ibis[i] })
@@ -132,13 +130,13 @@ function flattenMeasurements(measurements: Measurement[], mode: BeatMode): Beat[
  * Normal append-only updates (a new measurement arrives over the
  * WebSocket) only push the new beats into the stream — the existing point
  * set is left untouched, so the chart does not "rebuild" the scatter on
- * every realtime tick. Mode changes and out-of-order arrivals trigger a
- * full rebuild from the current measurement history.
+ * every realtime tick. Out-of-order arrivals trigger a full rebuild
+ * from the current measurement history.
  */
-export function PoincareChart({ measurements, mode }: PoincareChartProps) {
+export function PoincareChart({ measurements }: PoincareChartProps) {
   const streamRef = useRef<ReturnType<typeof createPoincareStream> | null>(null)
   if (streamRef.current === null) {
-    streamRef.current = createPoincareStream({ mode })
+    streamRef.current = createPoincareStream({})
   }
   const seenIdsRef = useRef<Set<string> | null>(null)
   if (seenIdsRef.current === null) {
@@ -170,7 +168,7 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
     }
 
     if (hasUntimedPoints) {
-      stream.rebuild(flattenMeasurements(measurements, mode))
+      stream.rebuild(flattenMeasurements(measurements))
       seen.clear()
       for (const m of measurements) seen.add(m.id)
       forceRender((v) => v + 1)
@@ -187,18 +185,9 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
       }
     }
 
-    // Mode change: rebuild from full history under the new filter.
-    if (stream.mode !== mode) {
-      stream.setMode(mode, flattenMeasurements(measurements, mode))
-      seen.clear()
-      for (const m of measurements) seen.add(m.id)
-      forceRender((v) => v + 1)
-      return
-    }
-
     // First mount: rebuild from full history.
     if (seen.size === 0) {
-      stream.rebuild(flattenMeasurements(measurements, mode))
+      stream.rebuild(flattenMeasurements(measurements))
       for (const m of measurements) seen.add(m.id)
       forceRender((v) => v + 1)
       return
@@ -209,7 +198,7 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
     if (hasRemovedIds) {
       seen.clear()
       for (const m of measurements) seen.add(m.id)
-      stream.rebuild(flattenMeasurements(measurements, mode))
+      stream.rebuild(flattenMeasurements(measurements))
       forceRender((v) => v + 1)
       return
     }
@@ -228,19 +217,19 @@ export function PoincareChart({ measurements, mode }: PoincareChartProps) {
 
     const newBeats: Beat[] = []
     for (const m of newMeasurements) {
-      const beats = flattenMeasurements([m], mode)
+      const beats = flattenMeasurements([m])
       for (const b of beats) newBeats.push(b)
     }
     newBeats.sort((a, b) => a.timestampMs - b.timestampMs)
 
     const result = stream.append(newBeats)
     if (result === 'rebuild_required') {
-      stream.rebuild(flattenMeasurements(measurements, mode))
+      stream.rebuild(flattenMeasurements(measurements))
       seen.clear()
       for (const m of measurements) seen.add(m.id)
     }
     forceRender((v) => v + 1)
-  }, [measurements, mode, hasUntimedPoints])
+  }, [measurements, hasUntimedPoints])
 
   const meta =
     points.length === 0

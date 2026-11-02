@@ -35,16 +35,14 @@ export interface TachogramPoint {
   timestampMs: number
   ibiMs: number
   /**
-   * True when this beat looks abnormal (sensor flag, fuera de rango
-   * fisiológico o salto brusco vs. el latido previo). El gráfico lo
-   * pinta en rojo para distinguirlo de la variabilidad sinusal normal.
+   * True when this beat looks abnormal (fuera de rango fisiológico o
+   * salto brusco vs. el latido previo). El gráfico lo pinta en rojo
+   * para distinguirlo de la variabilidad sinusal normal.
    */
   isAnomaly: boolean
   /** Motivo de la anomalía; `null` cuando `isAnomaly` es falso. */
   anomalyKind: IBIAnomalyKind | null
 }
-
-export type BeatMode = 'filtered' | 'raw'
 
 /** Y-axis bound for the tachogram: a finite number or 'auto'. */
 export type TachogramYBound = number | 'auto'
@@ -66,28 +64,13 @@ export function resolveTachogramYDomain(
   return [lo ?? 'auto', hi ?? 'auto']
 }
 
-/** Measurement-source filter for the charts (polar-h10-validation T8). */
-export type DeviceFilter = 'all' | 'samsung_watch' | 'polar_h10'
-
 /**
- * Keep only rows from the selected measurement device.
- * `'all'` returns the input untouched (default view, no behavior change).
- */
-export function filterByDevice(
-  measurements: Measurement[],
-  device: DeviceFilter,
-): Measurement[] {
-  if (device === 'all') return measurements
-  return measurements.filter((m) => m.source === device)
-}
-
-/**
- * Drop transport-level duplicates in the Polar stream: consecutive (by
- * timestamp) `polar_h10` rows with identical timestamp, BPM, IBI array
- * and lifecycle status collapse to the first one.
+ * Drop transport-level duplicates in the band stream: consecutive (by
+ * timestamp) rows with identical timestamp, BPM and IBI array collapse
+ * to the first one.
  *
  * Steady resting BPM with advancing timestamps is physiology, not noise,
- * and is preserved. Samsung rows are never touched.
+ * and is preserved.
  */
 export function dedupeConsecutivePolarReadings(
   measurements: Measurement[],
@@ -100,13 +83,9 @@ export function dedupeConsecutivePolarReadings(
     const prev = out[out.length - 1]
     if (
       prev !== undefined &&
-      m.source === 'polar_h10' &&
-      prev.source === 'polar_h10' &&
       m.timestamp === prev.timestamp &&
       m.heart_rate_bpm === prev.heart_rate_bpm &&
-      m.hr_status === prev.hr_status &&
-      JSON.stringify(m.ibis_ms) === JSON.stringify(prev.ibis_ms) &&
-      JSON.stringify(m.ibis_status) === JSON.stringify(prev.ibis_status)
+      JSON.stringify(m.ibis_ms) === JSON.stringify(prev.ibis_ms)
     ) {
       continue
     }
@@ -163,15 +142,11 @@ function hannWindow(n: number): number[] {
  * diagnóstico — ver docs/informe-pps.md §4.1–§4.2 y práctica clínica
  * habitual en HRV: Kubios, HRV4Training, Task Force ESC/NASPE 1996).
  *
- * 1. `sensor-invalid`: el sensor Samsung lo marcó con `ibis_status !== 0`
- *    o el valor es el centinela `0` ("sin dato de IBI").
- * 2. `out-of-range`: fuera de 300–2000 ms (30–200 bpm). El flag del
- *    fabricante no garantiza rango fisiológico por sí solo: en la sesión
- *    de 3 h 48 min el 1,3 % de los IBI con status 0 caía fuera de este
- *    rango (mín 260 ms ≈ 231 bpm, máx 2300 ms ≈ 26 bpm).
- * 3. `ectopic-beat`: salto > 20 % respecto al latido previo contiguo.
+ * 1. `out-of-range`: fuera de 300–2000 ms (30–200 bpm). Incluye el
+ *    centinela 0 ("sin dato de IBI") y valores no finitos.
+ * 2. `ectopic-beat`: salto > 20 % respecto al latido previo contiguo.
  *    En clínica se descartan los RR que difieren > 20–25 % del previo
- *    (posible latido ectópico o artefacto de movimiento PPG). Un solo
+ *    (posible latido ectópico o artefacto de movimiento). Un solo
  *    ectópico sin corregir puede triplicar el RMSSD.
  */
 export const PHYSIOLOGICAL_IBI_MIN_MS = 300
@@ -185,7 +160,7 @@ export const ECTOPIC_RELATIVE_CHANGE_THRESHOLD = 0.2
  */
 export const CONTIGUITY_GAP_MS = 3000
 
-export type IBIAnomalyKind = 'sensor-invalid' | 'out-of-range' | 'ectopic-beat'
+export type IBIAnomalyKind = 'out-of-range' | 'ectopic-beat'
 
 export interface IBIAnomaly {
   isAnomaly: boolean
@@ -242,29 +217,27 @@ export function classifyIBIAnomalies(
  * Timestamps are reconstructed by walking backwards from each batch's
  * reference timestamp, exactly the same math used for the tachogram.
  *
- * - `mode === 'filtered'` keeps beats where `ibis_status[i] === 0`
- *   (normal/valid) and drops beats where `ibis_status[i] !== 0`
- *   (error/invalid). If both `ibis_status` and `ibis_ms` arrays are
- *   present and a status slot has a value other than `0`, the beat is
- *   dropped.
- * - `mode === 'raw'` keeps every beat.
- * - `ibis_status == null` or length-mismatched is treated as "all accepted".
+ * Every beat in `ibis_ms` is kept. The band repeats its last RR
+ * intervals across notifications, so the series piles up identical
+ * consecutive beats (chart noise): a beat that equals the previously
+ * emitted one collapses. Steady BPM with advancing timestamps is
+ * preserved because only *identical consecutive IBI values* collapse.
  */
-export function selectIBISeries(
-  measurements: Measurement[],
-  mode: BeatMode = 'raw',
-): { times: number[]; ibis: number[] } {
+export function selectIBISeries(measurements: Measurement[]): {
+  times: number[]
+  ibis: number[]
+} {
   const sorted = [...measurements].sort((a, b) =>
     a.timestamp.localeCompare(b.timestamp),
   )
 
   const times: number[] = []
   const ibis: number[] = []
-  // T9: the H10 repeats its last RR intervals across notifications, so
-  // the polar series piles up identical consecutive beats (chart noise).
-  // Collapse a polar beat that equals the previously emitted one.
-  // Samsung is untouched; steady BPM with advancing timestamps is
-  // preserved because only *identical consecutive IBI values* collapse.
+  // The band repeats its last RR intervals across notifications, so
+  // the series piles up identical consecutive beats (chart noise).
+  // Collapse a beat that equals the previously emitted one.
+  // Steady BPM with advancing timestamps is preserved because only
+  // *identical consecutive IBI values* collapse.
   let lastEmittedIbi: number | null = null
 
   for (const m of sorted) {
@@ -272,9 +245,6 @@ export function selectIBISeries(
     if (!ibisMs || ibisMs.length === 0) continue
 
     const ts = new Date(m.timestamp).getTime()
-    const status = m.ibis_status
-    const hasStatus = status !== null && status.length === ibisMs.length
-    const filtering = mode === 'filtered' && hasStatus
 
     // Build this batch oldest → newest, then append chronologically.
     const localTimes: number[] = []
@@ -291,17 +261,7 @@ export function selectIBISeries(
     localIbis.reverse()
 
     for (let i = 0; i < localIbis.length; i++) {
-      // Samsung IBI_STATUS_LIST convention (SDK >= 1.2.0):
-      //   0   = normal/valid beat
-      //   -1  = error/invalid beat
-      // A beat is also invalid when its ibis value is 0 (sentinel
-      // for "no IBI data"). When status is present AND we're in
-      // filtered mode, drop every beat the sensor flagged invalid
-      // AND every beat whose ibis value is the 0 sentinel.
-      if (filtering) {
-        if (status[i] !== 0 || localIbis[i] === 0) continue
-      }
-      if (m.source === 'polar_h10' && localIbis[i] === lastEmittedIbi) continue
+      if (localIbis[i] === lastEmittedIbi) continue
       lastEmittedIbi = localIbis[i]
       times.push(localTimes[i])
       ibis.push(localIbis[i])
@@ -312,19 +272,17 @@ export function selectIBISeries(
 }
 
 /**
- * Select beats for the tachogram, optionally filtering noisy beats and
- * always capped to the last `windowMs` milliseconds.
+ * Select beats for the tachogram, always capped to the last
+ * `windowMs` milliseconds.
  *
  * Returns points in chronological order (oldest → newest) so the chart can
  * simply render them in order. Each point carries `isAnomaly` /
- * `anomalyKind`: en modo `raw` los latidos que el sensor marcó inválidos
- * se conservan pero se anotan como `sensor-invalid`; en ambos modos se
- * anotan además `out-of-range` (300–2000 ms) y `ectopic-beat` (> 20 % vs.
- * previo contiguo, sin comparar a través de huecos > 3 s).
+ * `anomalyKind`: se anotan `out-of-range` (300–2000 ms) y
+ * `ectopic-beat` (> 20 % vs. previo contiguo, sin comparar a través
+ * de huecos > 3 s).
  */
 export function selectBeatsForChart(
   measurements: Measurement[],
-  mode: BeatMode,
   windowMs: number = DEFAULT_TACHOGRAM_WINDOW_MS,
 ): TachogramPoint[] {
   const sorted = [...measurements].sort((a, b) =>
@@ -333,12 +291,11 @@ export function selectBeatsForChart(
 
   const times: number[] = []
   const ibis: number[] = []
-  const sensorInvalid: boolean[] = []
-  // T9: the H10 repeats its last RR intervals across notifications, so
-  // the polar series piles up identical consecutive beats (chart noise).
-  // Collapse a polar beat that equals the previously emitted one.
-  // Samsung is untouched; steady BPM with advancing timestamps is
-  // preserved because only *identical consecutive IBI values* collapse.
+  // The band repeats its last RR intervals across notifications, so
+  // the series piles up identical consecutive beats (chart noise).
+  // Collapse a beat that equals the previously emitted one.
+  // Steady BPM with advancing timestamps is preserved because only
+  // *identical consecutive IBI values* collapse.
   let lastEmittedIbi: number | null = null
 
   for (const m of sorted) {
@@ -346,45 +303,26 @@ export function selectBeatsForChart(
     if (!ibisMs || ibisMs.length === 0) continue
 
     const ts = new Date(m.timestamp).getTime()
-    const status = m.ibis_status
-    const hasStatus = status !== null && status.length === ibisMs.length
-    const filtering = mode === 'filtered' && hasStatus
 
     // Build this batch oldest → newest, then append chronologically.
     const localTimes: number[] = []
     const localIbis: number[] = []
-    const localSensorInvalid: boolean[] = []
     let offset = 0
 
     for (let i = ibisMs.length - 1; i >= 0; i--) {
-      const invalid =
-        ibisMs[i] === 0 || (hasStatus && status[i] !== 0)
       localTimes.push(ts - offset)
       localIbis.push(ibisMs[i])
-      localSensorInvalid.push(invalid)
       offset += ibisMs[i]
     }
 
     localTimes.reverse()
     localIbis.reverse()
-    localSensorInvalid.reverse()
 
     for (let i = 0; i < localIbis.length; i++) {
-      // Samsung IBI_STATUS_LIST convention (SDK >= 1.2.0):
-      //   0   = normal/valid beat
-      //   -1  = error/invalid beat
-      // A beat is also invalid when its ibis value is 0 (sentinel
-      // for "no IBI data"). When status is present AND we're in
-      // filtered mode, drop every beat the sensor flagged invalid
-      // AND every beat whose ibis value is the 0 sentinel.
-      if (filtering) {
-        if (status[i] !== 0 || localIbis[i] === 0) continue
-      }
-      if (m.source === 'polar_h10' && localIbis[i] === lastEmittedIbi) continue
+      if (localIbis[i] === lastEmittedIbi) continue
       lastEmittedIbi = localIbis[i]
       times.push(localTimes[i])
       ibis.push(localIbis[i])
-      sensorInvalid.push(localSensorInvalid[i])
     }
   }
 
@@ -398,18 +336,12 @@ export function selectBeatsForChart(
   const points: TachogramPoint[] = []
   for (let i = 0; i < times.length; i++) {
     if (times[i] < cutoff) continue
-    let isAnomaly = relative[i].isAnomaly
-    let anomalyKind = relative[i].kind
-    if (sensorInvalid[i]) {
-      isAnomaly = true
-      anomalyKind = 'sensor-invalid'
-    }
     points.push({
       timestamp: new Date(times[i]).toISOString(),
       timestampMs: times[i],
       ibiMs: ibis[i],
-      isAnomaly,
-      anomalyKind,
+      isAnomaly: relative[i].isAnomaly,
+      anomalyKind: relative[i].kind,
     })
   }
 
@@ -474,14 +406,10 @@ function interpolateToRegularGrid(
  *
  * Returns only the positive-frequency bins from 0 to Nyquist.
  *
- * `mode` follows the same filtered/raw convention as the tachogram, but
- * the PSD is NOT capped to the 60-second tachogram window.
+ * The PSD is NOT capped to the 60-second tachogram window.
  */
-export function computePSD(
-  measurements: Measurement[],
-  mode: BeatMode = 'raw',
-): FrequencyBin[] {
-  const { times, ibis } = selectIBISeries(measurements, mode)
+export function computePSD(measurements: Measurement[]): FrequencyBin[] {
+  const { times, ibis } = selectIBISeries(measurements)
   if (ibis.length < 8) return []
 
   const { gridValues } = interpolateToRegularGrid(times, ibis, TARGET_HZ)
@@ -538,7 +466,7 @@ export function computePSD(
 // ECG snippet (Polar H10 validation strip)
 // ---------------------------------------------------------------------------
 
-/** Latest 10 s ECG validation strip carried by `polar_h10` rows. */
+/** Latest 10 s ECG validation strip carried by band rows. */
 export interface EcgSnippet {
   /** Voltages in microvolts (@ `sampleRateHz`). */
   voltages: number[]
@@ -551,8 +479,7 @@ export interface EcgSnippet {
 
 /**
  * Pick the newest measurement row carrying an ECG strip.
- * Returns `null` when no row has `ecg_uv` + `ecg_sample_rate_hz`
- * (e.g. Samsung-only sessions).
+ * Returns `null` when no row has `ecg_uv` + `ecg_sample_rate_hz`.
  */
 export function selectLatestEcgSnippet(
   measurements: Measurement[],
@@ -592,14 +519,10 @@ export function selectLatestEcgSnippet(
  * Build Poincaré-plot points: (IBI[n], IBI[n+1]) for every pair of
  * consecutive inter-beat intervals.
  *
- * `mode` follows the tachogram's filtered/raw convention, but the points
- * are NOT capped to the 60-second tachogram window.
+ * The points are NOT capped to the 60-second tachogram window.
  */
-export function computePoincare(
-  measurements: Measurement[],
-  mode: BeatMode = 'raw',
-): PoincarePoint[] {
-  const { ibis } = selectIBISeries(measurements, mode)
+export function computePoincare(measurements: Measurement[]): PoincarePoint[] {
+  const { ibis } = selectIBISeries(measurements)
   if (ibis.length < 2) return []
 
   const points: PoincarePoint[] = []

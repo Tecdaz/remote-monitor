@@ -17,7 +17,6 @@ import {
 import {
   resolveTachogramYDomain,
   selectBeatsForChart,
-  type BeatMode,
   type TachogramPoint,
 } from '../../lib/signal-processing'
 import type { ConnectionState } from '../../lib/connection-state'
@@ -34,12 +33,10 @@ import {
 
 interface TachogramChartProps {
   measurements: Measurement[]
-  mode: BeatMode
   connectionState: ConnectionState
 }
 
 const ANOMALY_LABEL: Record<string, string> = {
-  'sensor-invalid': 'sensor inválido',
   'out-of-range': 'fuera de rango (300–2000 ms)',
   'ectopic-beat': 'salto > 20 % vs. previo',
 }
@@ -73,12 +70,11 @@ function AnomalyDot(props: {
  */
 export function TachogramChart({
   measurements,
-  mode,
   connectionState,
 }: TachogramChartProps) {
   const data = useMemo(
-    () => selectBeatsForChart(measurements, mode, 60_000),
-    [measurements, mode],
+    () => selectBeatsForChart(measurements, 60_000),
+    [measurements],
   )
 
   // T10: operator-adjustable Y-axis bounds. Empty = auto per side.
@@ -98,17 +94,9 @@ export function TachogramChart({
   const latest: TachogramPoint | undefined = data[data.length - 1]
   const anomalyCount = data.filter((d) => d.isAnomaly).length
 
-  const allBeatsInvalid =
-    data.length === 0 &&
-    mode === 'filtered' &&
-    measurements.some((m) => m.ibis_status !== null)
-
-  const emptyMessage = allBeatsInvalid
-    ? 'Todos los latidos están marcados como inválidos'
-    : 'Esperando datos del sensor'
-  const emptyHint = allBeatsInvalid
-    ? 'El sensor indica que ningún latido reciente pasó el control de calidad.'
-    : 'La ventana de 60 segundos se completará a medida que lleguen nuevas mediciones.'
+  const emptyMessage = 'Esperando datos del sensor'
+  const emptyHint =
+    'La ventana de 60 segundos se completará a medida que lleguen nuevas mediciones.'
 
   const metaBase =
     data.length > 0
@@ -244,7 +232,7 @@ export function TachogramChart({
             IBI anómalo
           </span>
           <span>
-            sensor inválido · fuera de 300–2000 ms (30–200 bpm) · salto &gt;
+            fuera de 300–2000 ms (30–200 bpm) · salto &gt;
             20 % vs. previo
           </span>
         </p>
