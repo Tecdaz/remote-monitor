@@ -102,10 +102,25 @@ class SyncForegroundService : Service() {
         // so the main thread is not blocked.
         scope.launch {
             val bedNumber = currentBedNumber()
-            startForeground(NOTIFICATION_ID, buildNotification(persistentlyShown = true, bedNumber = bedNumber))
+            val foregroundStarted = runCatching {
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification(persistentlyShown = true, bedNumber = bedNumber),
+                )
+            }.onFailure {
+                // Missing BLUETOOTH_CONNECT on Android 14+ (or a
+                // disallowed FGS start) must not crash the process.
+                // The activity restarts the service after the operator
+                // grants the permission.
+                Log.e(TAG, "startForeground failed; sync loop not started", it)
+            }.isSuccess
+            if (!foregroundStarted) {
+                stopSelf()
+                return@launch
+            }
             if (isWatchDevice()) publishOngoingActivity(bedNumber)
+            startSyncLoop()
         }
-        startSyncLoop()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

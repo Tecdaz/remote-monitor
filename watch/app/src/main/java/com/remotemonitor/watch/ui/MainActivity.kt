@@ -55,6 +55,14 @@ class MainActivity : ComponentActivity() {
     private val blePermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
             Log.i(TAG, "ble permission result: $grants")
+            // Android 14+ requires BLUETOOTH_CONNECT before a
+            // `connectedDevice` foreground service can call
+            // startForeground. Start the sync loop once the operator
+            // grants every requested permission; a later app launch
+            // also retries through the root DisposableEffect.
+            if (grants.isNotEmpty() && grants.values.all { it }) {
+                startSyncForegroundService(this)
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
