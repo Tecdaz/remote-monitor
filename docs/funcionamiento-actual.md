@@ -6,6 +6,8 @@ original.
 
 ## Objeto de medición: banda Polar H10
 
+> Detalle de cadencia, campos y lectura: [`band-data.md`](band-data.md).
+
 La banda es el **único dispositivo de medición**. La app Android lee la
 banda por BLE y sube los lotes al backend; ya no usa los sensores del
 reloj. El mismo APK corre en un reloj Wear OS, un teléfono o una tablet

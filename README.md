@@ -27,6 +27,9 @@ El flujo completo es así:
    tiempo), gráfico de frecuencias de HRV (VLF / LF / HF) y mapa de Poincaré
    (IBI<sub>n</sub> vs. IBI<sub>n+1</sub>).
 
+> Detalle de cadencia, propiedades y lectura de los datos de la banda:
+> [`docs/band-data.md`](docs/band-data.md).
+
 ### Funcionalidades actuales
 
 | Componente | ¿Qué hace hoy? |
