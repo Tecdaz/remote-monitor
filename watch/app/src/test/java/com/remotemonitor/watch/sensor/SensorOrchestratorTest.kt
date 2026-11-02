@@ -125,7 +125,7 @@ class SensorOrchestratorTest {
             clock = { 1_700_000_000_000L },
         )
 
-        assertEquals(SensorHealth.Healthy, orchestrator.healthState.value)
+        assertEquals(SensorHealth.Connecting, orchestrator.healthState.value)
         orchestrator.start(backgroundScope)
         runCurrent()
         orchestrator.stop()

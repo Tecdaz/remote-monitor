@@ -34,7 +34,7 @@ data class HomeVitals(
     val pendingCount: Int = 0,
     val hrBpm: Int? = null,
     val lastUpdate: Instant? = null,
-    val health: SensorHealth = SensorHealth.Healthy,
+    val health: SensorHealth = SensorHealth.Connecting,
 )
 
 /**

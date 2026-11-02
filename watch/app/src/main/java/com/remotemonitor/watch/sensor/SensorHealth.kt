@@ -14,12 +14,18 @@ package com.remotemonitor.watch.sensor
  * readout: when the state is [Failed] the HR numeral is suppressed and
  * `home_hr_placeholder` renders instead of a stale BPM (D6).
  *
- * **HR-only scope**: this type describes the HR pipeline only. No SpO2
- * health is modelled — SpO2 is out of scope (product decision
- * 2026-07-01).
+ * **Band-only scope**: this type describes the Polar H10 link only.
+ * Watch sensors and SpO2 are out of scope.
  */
 sealed class SensorHealth {
-    /** The HR pipeline is collecting readings normally. Initial state. */
+    /**
+     * No reading has arrived yet (app just started, BLE scan/connect in
+     * progress, or no band configured). The UI shows "looking for band"
+     * instead of a false "connected" claim.
+     */
+    object Connecting : SensorHealth()
+
+    /** The HR pipeline is collecting readings normally. */
     object Healthy : SensorHealth()
 
     /**

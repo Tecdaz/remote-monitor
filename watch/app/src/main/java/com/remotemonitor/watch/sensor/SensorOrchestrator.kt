@@ -25,7 +25,7 @@ import java.util.UUID
  *
  * **Health signal**: [healthState] exposes the band link health so the
  * home vitals surface can gate the BPM readout. It starts
- * [SensorHealth.Healthy], flips to [SensorHealth.Failed] if the
+ * [SensorHealth.Connecting], flips to [SensorHealth.Failed] if the
  * readings collection throws (non-cancellation), and flips to
  * [SensorHealth.OffWrist] when no BPM has arrived for
  * [offWristTimeoutMs] (the band keeps emitting `null`). A fresh
@@ -45,7 +45,7 @@ class SensorOrchestrator(
 ) {
     private var job: Job? = null
 
-    private val _healthState = MutableStateFlow<SensorHealth>(SensorHealth.Healthy)
+    private val _healthState = MutableStateFlow<SensorHealth>(SensorHealth.Connecting)
 
     /** Band link health, consumed by the home vitals surface. */
     val healthState: StateFlow<SensorHealth> = _healthState.asStateFlow()

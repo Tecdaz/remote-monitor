@@ -268,7 +268,6 @@ private fun SessionCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            SensorHealthText(health = state.health)
             Spacer(Modifier.height(4.dp))
             OutlinedButton(
                 onClick = onRePair,
@@ -283,6 +282,8 @@ private fun SessionCard(
 @Composable
 private fun SensorHealthText(health: SensorHealth) {
     val (text, color) = when (health) {
+        SensorHealth.Connecting -> stringResource(R.string.sensor_connecting) to
+            MaterialTheme.colorScheme.onSurfaceVariant
         SensorHealth.Healthy -> stringResource(R.string.sensor_connected) to
             MaterialTheme.colorScheme.secondary
         SensorHealth.OffWrist -> stringResource(R.string.sensor_off_wrist) to
