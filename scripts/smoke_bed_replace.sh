@@ -61,7 +61,7 @@ ok "picked free bed $FREE_BED"
 RESP=$(curl -sS -o /tmp/smoke_p1.json -w "%{http_code}" \
   -X POST "$BASE_URL/api/v1/patients" \
   -H "X-Patient-Number: $FREE_BED" -H "Content-Type: application/json" \
-  -d "{\"bed_number\":$FREE_BED,\"device_model\":\"samsung SM-R870\",\"os_version\":\"16 (API 36)\",\"replace_active_session\":false}")
+  -d "{\"bed_number\":$FREE_BED,\"device_model\":\"Google Pixel 8\",\"os_version\":\"16 (API 36)\",\"replace_active_session\":false}")
 [ "$RESP" = "201" ] && ok "POST returned 201" || { bad "expected 201, got $RESP"; cat /tmp/smoke_p1.json; exit 1; }
 OLD_PID=$(jq -r .patient_id /tmp/smoke_p1.json)
 [[ "$OLD_PID" =~ ^[0-9a-fA-F-]{36}$ ]] && ok "response has patient_id ($OLD_PID)" || { bad "patient_id missing or malformed"; exit 1; }
@@ -74,7 +74,7 @@ NOW_OCC=$(echo "$SNAP2" | jq -r ".[] | select(.bed_number == $FREE_BED) | .is_oc
 RESP=$(curl -sS -o /tmp/smoke_p2.json -w "%{http_code}" \
   -X POST "$BASE_URL/api/v1/patients" \
   -H "X-Patient-Number: $FREE_BED" -H "Content-Type: application/json" \
-  -d "{\"bed_number\":$FREE_BED,\"device_model\":\"samsung SM-R870\",\"os_version\":\"16 (API 36)\",\"replace_active_session\":true}")
+  -d "{\"bed_number\":$FREE_BED,\"device_model\":\"Google Pixel 8\",\"os_version\":\"16 (API 36)\",\"replace_active_session\":true}")
 [ "$RESP" = "201" ] && ok "REPLACE returned 201" || { bad "expected 201, got $RESP"; cat /tmp/smoke_p2.json; exit 1; }
 NEW_PID=$(jq -r .patient_id /tmp/smoke_p2.json)
 [ "$NEW_PID" != "$OLD_PID" ] && ok "new patient_id ($NEW_PID) ≠ old ($OLD_PID)" || bad "patient_id did not change — replace did not happen"
@@ -89,7 +89,7 @@ for i in 1 2 3 4 5; do
   (curl -sS -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/api/v1/patients" \
     -H "X-Patient-Number: $RACE_BED" -H "Content-Type: application/json" \
-    -d "{\"bed_number\":$RACE_BED,\"device_model\":\"samsung SM-R870\",\"os_version\":\"16 (API 36)\",\"replace_active_session\":false}" \
+    -d "{\"bed_number\":$RACE_BED,\"device_model\":\"Google Pixel 8\",\"os_version\":\"16 (API 36)\",\"replace_active_session\":false}" \
     > /tmp/smoke_race_$i.code) &
 done
 wait

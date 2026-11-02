@@ -2,9 +2,9 @@
 
 ## 1. Purpose
 
-The `wear-bed-picker-onboarding` change replaces the watch's old
+The `wear-bed-picker-onboarding` change replaces the old
 "type a patient number" onboarding with a five-bed carousel. The
-operator selects a bed; if it's free, the watch pairs immediately.
+operator selects a bed; if it's free, the device pairs immediately.
 If it's occupied, a Spanish-language dialog asks the operator to
 confirm a session replacement. This runbook is the on-call / clinical-
 engineering operator's reference for installing the new APK, working
@@ -18,15 +18,15 @@ the §11 literal diffs and §12 gate-findings audit trail.
 
 ## 2. What changed for operators
 
-- The watch's onboarding screen now shows a five-bed carousel
+- The onboarding screen now shows a five-bed carousel (watch carousel, phone/tablet grid)
   (circular badges, one per bed 1..5) instead of a text field.
 - Occupied beds are tinted red and require a second confirmation
   (Spanish: `Aceptar`) before the active session is replaced.
 - The `X-Patient-Number` header value is no longer operator-typed.
-  The watch sends the bed plaintext (`"1"`..`"5"`); the backend derives
+  The device sends the bed plaintext (`"1"`..`"5"`); the backend derives
   the patient_number ciphertext deterministically.
 - A `RE-emparejar` action on the **Home** screen routes paired-but-
-  no-bed watches (legacy state) to the new **Repair required** screen.
+  no-bed devices (legacy state) to the new **Repair required** screen.
 
 ## 3. Step-by-step operator workflow
 
@@ -43,7 +43,7 @@ the §11 literal diffs and §12 gate-findings audit trail.
 
    Full prerequisites are in [`docs/local-testing.md`](local-testing.md).
 
-2. Power on the watch. Cold-launch the app
+2. Power on the device. Cold-launch the app
    (`adb shell am start -n com.remotemonitor.watch/.ui.MainActivity`).
 
 3. The carousel renders five circular badges:
@@ -51,14 +51,14 @@ the §11 literal diffs and §12 gate-findings audit trail.
    - **Red** = the bed is currently occupied.
 
 4. Swipe to your bed and tap its badge.
-   - If **green**: the watch POSTs immediately, the snackbar
+   - If **green**: the device POSTs immediately, the snackbar
      `Emparejado a la cama N` appears, and you land on **Home**.
    - If **red**: the `Cama ocupada` dialog opens. Read the body text
      carefully — selecting **Aceptar** deactivates the active session
      on that bed.
 
 5. On **Home**, the status line shows `Cama N · M subidas pendientes`.
-   The watch now streams vitals to the backend.
+   The device now streams band vitals to the backend.
 
 ## 4. Troubleshooting
 
@@ -69,7 +69,7 @@ re-launch). Per design §7 row 2, the snapshot fetch lives in
 `OnboardingScreen.kt`'s `LaunchedEffect(Unit)`; the watch re-fetches
 on cold start only.
 
-**Q: The watch is stuck on `Emparejado a la cama 3` and refuses to
+**Q: The device is stuck on `Emparejado a la cama 3` and refuses to
 re-pair.**
 A: The DataStore is in a half-paired state from an interrupted POST.
 Force-stop the app and clear DataStore:

@@ -1,8 +1,9 @@
-# wear-bed-picker-onboarding developer Makefile
+# remote-monitor developer Makefile
 #
-# Single source of truth for the local dev workflow on a Galaxy Watch 4.
-# All targets read backend/.env.test and watch/.env.test (both gitignored).
-# Update those files first if you change ngrok URL or watch IP/port.
+# Single source of truth for the local dev workflow. The Android collector
+# APK runs on Wear OS watches, Android phones and Android tablets; all
+# targets read backend/.env.test and watch/.env.test (both gitignored).
+# Update those files first if you change ngrok URL or the adb target.
 
 # --- Shell safety ---------------------------------------------------------
 SHELL := /bin/bash
@@ -15,6 +16,11 @@ WATCH_ENV_FILE   := watch/.env.test
 APK              := watch/app/build/outputs/apk/debug/app-debug.apk
 APP_PKG          := com.remotemonitor.watch
 NGROK_LOG        := /tmp/opencode/ngrok-logs/ngrok.log
+
+# Polar H10 device filter. Defaults to the strap name; override from the
+# command line for a specific device:
+#   make build POLAR_DEVICE_ID=H10_ABC123
+POLAR_DEVICE_ID  ?= Polar H10
 
 # --- Helpers (read env.test into Make vars) -------------------------------
 # Use $(call env-key,FILENAME,KEY) → returns empty string if missing.
@@ -31,7 +37,7 @@ NGROK_AUTHTOKEN := $(call env-key,$(BACKEND_ENV_FILE),NGROK_AUTHTOKEN)
 # Use python here so Make's quoting doesn't fight bash parameter expansion.
 NGROK_DOMAIN    := $(shell python3 -c 'import sys,sysconfig; u=sys.argv[1]; s=u.strip().split("://",1)[-1]; print(s[:-1] if s.endswith("/") else s)' "$(NGROK_URL)")
 
-ADB_TARGET := $(if $(WATCH_IP):$(WATCH_PORT),$(WATCH_IP):$(WATCH_PORT),)
+ADB_TARGET := $(if $(and $(WATCH_IP),$(WATCH_PORT)),$(WATCH_IP):$(WATCH_PORT),)
 ADB := adb $(if $(ADB_TARGET),-s $(ADB_TARGET),)
 
 # --- Default target -------------------------------------------------------
@@ -40,7 +46,7 @@ ADB := adb $(if $(ADB_TARGET),-s $(ADB_TARGET),)
 # --- Help -----------------------------------------------------------------
 .PHONY: help
 help:
-	@echo "wear-bed-picker-onboarding developer Makefile"
+	@echo "remote-monitor developer Makefile (band-only Android app + backend + dashboard)"
 	@echo
 	@echo "Source of truth: backend/.env.test (NGROK_*) and watch/.env.test (watchIP, watchPort)."
 	@echo
@@ -51,22 +57,22 @@ help:
 	@echo "  make ngrok-up           start ngrok tunnel in background (logs: $(NGROK_LOG))"
 	@echo "  make ngrok-down         kill the ngrok tunnel"
 	@echo
-	@echo "Watch:"
-	@echo "  make pair               instructions to pair a new watch (wireless adb)"
+	@echo "Android device (watch / phone / tablet):"
+	@echo "  make pair               instructions to enable wireless adb"
 	@echo "  make connect            connect adb to the watchIP:watchPort in env.test"
 	@echo "  make status             show adb devices + docker + ngrok + backend health"
-	@echo "  make shell              adb shell into the connected watch"
+	@echo "  make shell              adb shell into the connected device"
 	@echo
 	@echo "Build / install / run:"
 	@echo "  make build              build debug APK with ngrok URL baked in"
-	@echo "  make install            install -r APK on the connected watch"
+	@echo "  make install            install -r APK on the connected device"
 	@echo "  make run                wake screen + launch the app"
 	@echo "  make build-install-run  build + install + run, in order"
 	@echo
 	@echo "Reset / clean:"
 	@echo "  make backend-db-clean   TRUNCATE every table outside public (preserves schema)"
 	@echo "  make watch-clean        pm clear $(APP_PKG)"
-	@echo "  make watch-grant        pm grant sensor permissions (after pm clear)"
+	@echo "  make watch-grant        pm grant BLE + notification permissions (after pm clear)"
 	@echo "  make watch-clean-all    watch-clean + watch-grant"
 	@echo
 	@echo "Tests:"
@@ -151,13 +157,13 @@ ngrok-down:
 	-pkill -x ngrok 2>/dev/null
 	@echo "ngrok stopped (if it was running)."
 
-# --- Watch ----------------------------------------------------------------
+# --- Android device (watch / phone / tablet) ------------------------------
 .PHONY: pair connect status shell
 pair:
-	@echo "Pair a new Galaxy Watch 4 (wireless adb):"
-	@echo "  1. On the watch: Settings → Developer options → Wireless debugging"
+	@echo "Pair an Android device over wireless adb:"
+	@echo "  1. Settings → Developer options → Wireless debugging"
 	@echo "  2. Tap 'Pair device with pairing code'"
-	@echo "  3. Note the IP:port and pairing code shown on the watch"
+	@echo "  3. Note the IP:port and pairing code shown on the device"
 	@echo
 	@echo "Then run (host shell, not Make):"
 	@echo "  adb pair <IP>:<port>"
@@ -212,8 +218,8 @@ build:
 		echo "ERROR: NGROK_PUBLIC_URL missing in $(BACKEND_ENV_FILE)"; \
 		exit 1; \
 	fi
-	@echo "Building APK with apiBaseUrl=$(NGROK_URL)"
-	cd watch && ./gradlew :app:assembleDebug -PapiBaseUrl="$(NGROK_URL)" --no-daemon
+	@echo "Building APK with apiBaseUrl=$(NGROK_URL) polarDeviceId=$(POLAR_DEVICE_ID)"
+	cd watch && ./gradlew :app:assembleDebug -PapiBaseUrl="$(NGROK_URL)" -PpolarDeviceId="$(POLAR_DEVICE_ID)" --no-daemon
 	@echo "Built: $(APK)"
 
 install:
@@ -225,10 +231,10 @@ install:
 
 run:
 	@if [ -z "$(ADB_TARGET)" ]; then \
-		echo "ERROR: no watch connected. Run 'make connect' first."; \
+		echo "ERROR: no Android device connected. Run 'make connect' first."; \
 		exit 1; \
 	fi
-	$(ADB) shell input keyevent KEYCODE_WAKEUP 2>/dev/null
+	$(ADB) shell input keyevent KEYCODE_WAKEUP 2>/dev/null || true
 	$(ADB) shell am start -W -n $(APP_PKG)/.ui.MainActivity
 	@echo "Launched $(APP_PKG)/.ui.MainActivity on $(ADB_TARGET)"
 
@@ -247,23 +253,23 @@ backend-db-clean:
 
 watch-clean:
 	@if [ -z "$(ADB_TARGET)" ]; then \
-		echo "ERROR: no watch connected. Run 'make connect' first."; \
+		echo "ERROR: no Android device connected. Run 'make connect' first."; \
 		exit 1; \
 	fi
 	$(ADB) shell pm clear $(APP_PKG)
 
 watch-grant:
 	@if [ -z "$(ADB_TARGET)" ]; then \
-		echo "ERROR: no watch connected. Run 'make connect' first."; \
+		echo "ERROR: no Android device connected. Run 'make connect' first."; \
 		exit 1; \
 	fi
-	$(ADB) shell pm grant $(APP_PKG) android.permission.health.READ_HEART_RATE
-	$(ADB) shell pm grant $(APP_PKG) android.permission.health.READ_OXYGEN_SATURATION
+	$(ADB) shell pm grant $(APP_PKG) android.permission.BLUETOOTH_SCAN
+	$(ADB) shell pm grant $(APP_PKG) android.permission.BLUETOOTH_CONNECT
 	$(ADB) shell pm grant $(APP_PKG) android.permission.POST_NOTIFICATIONS
-	@echo "Sensor + notification permissions granted."
+	@echo "BLE + notification permissions granted."
 
 watch-clean-all: watch-clean watch-grant
-	@echo "Watch DataStore reset + sensor permissions granted."
+	@echo "App state reset + BLE permissions granted."
 
 # --- Tests ----------------------------------------------------------------
 .PHONY: test test-backend test-watch
@@ -272,7 +278,7 @@ test-backend:
 	cd backend && uv run pytest -v
 
 test-watch:
-	@echo "=== watch gradle test ==="
+	@echo "=== Android gradle test ==="
 	cd watch && ./gradlew :app:testDebugUnitTest --no-daemon
 
 test: test-backend test-watch

@@ -163,24 +163,24 @@ PY
   return $has_loading
 }
 
-# --- Step 2: wipe + re-grant watch -----------------------------------------
-log_step "STEP 2/3: Wipe watch app + re-grant runtime permissions"
+# --- Step 2: wipe + re-grant device -----------------------------------------
+log_step "STEP 2/3: Wipe app + re-grant runtime permissions"
 find_watch_serial
 
 if [ -z "$SERIAL" ]; then
-  echo "WARN: no wireless-adb watch connected (looked for '_adb-tls-connect._tcp' transport)."
-  echo "      Backend wipe is done. To complete the watch reset manually:"
+  echo "WARN: no wireless-adb device connected (looked for '_adb-tls-connect._tcp' transport)."
+  echo "      Backend wipe is done. To complete the device reset manually:"
   echo "        adb shell pm clear com.remotemonitor.watch"
-  echo "        adb shell pm grant com.remotemonitor.watch android.permission.health.READ_HEART_RATE"
-  echo "        adb shell pm grant com.remotemonitor.watch android.permission.BODY_SENSORS"
+  echo "        adb shell pm grant com.remotemonitor.watch android.permission.BLUETOOTH_SCAN"
+  echo "        adb shell pm grant com.remotemonitor.watch android.permission.BLUETOOTH_CONNECT"
   echo "        adb shell pm grant com.remotemonitor.watch android.permission.POST_NOTIFICATIONS"
   echo "        adb shell am start -n com.remotemonitor.watch/.ui.MainActivity"
   echo ""
-  echo "Final state: backend stack fresh. Watch not touched."
+  echo "Final state: backend stack fresh. Device not touched."
   exit 0
 fi
 
-echo "Found watch: $SERIAL"
+echo "Found device: $SERIAL"
 adb -s "$SERIAL" shell getprop ro.product.model 2>/dev/null | sed 's/^/  model: /'
 
 echo ""
@@ -188,10 +188,10 @@ echo "  pm clear com.remotemonitor.watch"
 adb -s "$SERIAL" shell pm clear com.remotemonitor.watch 2>&1 | sed 's/^/  /'
 
 echo ""
-echo "  Re-granting runtime permissions (required for FGS type=health):"
+echo "  Re-granting runtime permissions (BLE connected-device FGS):"
 for p in \
-  "android.permission.health.READ_HEART_RATE" \
-  "android.permission.BODY_SENSORS" \
+  "android.permission.BLUETOOTH_SCAN" \
+  "android.permission.BLUETOOTH_CONNECT" \
   "android.permission.POST_NOTIFICATIONS"
 do
   adb -s "$SERIAL" shell pm grant com.remotemonitor.watch "$p" 2>&1 | sed "s|^|    $p -> |"

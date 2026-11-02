@@ -1,5 +1,9 @@
 # Wear UI Guidelines — On-Watch Verification Runbook
 
+> Scope: Wear OS hosts only. The same APK renders Material 3 adaptive
+> screens on Android phones and tablets; those do not publish a
+> watch-face OngoingActivity.
+
 ## 1. Purpose
 
 The `wear-ui-guidelines` change (`stacked-to-main` chain: PR-1
