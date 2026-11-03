@@ -58,6 +58,120 @@ teléfono o tablet) actúa como puente BLE y sube los datos al backend.
    (`delete-after-echo`).
 5. Con error HTTP o de red, no borra nada y reintenta.
 
+### 1.4 ¿Por qué hay varias filas en el mismo segundo?
+
+Ver varias filas con el mismo segundo **no significa que todas sean
+duplicados**. Hay cuatro causas distintas:
+
+| Causa | Cómo se ve en los datos | ¿Es duplicado? |
+|---|---|---|
+| **Dos señales distintas** | Una fila con `ecg_uv` no nulo y `heart_rate_bpm = null`; otra con `ibis_ms`/BPM. | No. Son ECG y BPM/RR. |
+| **Varios RR en una notificación** | Una sola fila con `ibis_ms = [833, 820]`. | No. Son dos latidos en la misma notificación. |
+| **La banda repite la última ventana RR** | Varias filas con el mismo `heart_rate_bpm` y el mismo `ibis_ms`, pero `timestamp` distinto. | Sí, es repetición de transporte. |
+| **Re-emisión de la UI** | La pantalla actualiza el BPM o la hora varias veces sin una fila nueva. | No. Room invalida la consulta en cada insert. |
+
+#### Dos señales distintas
+
+Cada segundo se genera, como mínimo, una fila de BPM/RR y una tira de
+ECG. Por eso `clinical.measurements` puede tener **2 filas por segundo**
+sin que nada esté repetido. La tira ECG tiene `heart_rate_bpm = null` y
+`ecg_uv` no nulo.
+
+#### Varios latidos dentro de una fila
+
+Una notificación HRS puede traer varios intervalos RR. La app guarda una
+**sola fila** por notificación, con la lista completa en `ibis_ms`. El
+tacograma expande esa lista en varios puntos, uno por latido. A 72 lpm hay
+1,2 latidos por segundo; a 120 lpm, 2. Ver varios puntos por segundo en el
+gráfico es fisiológicamente normal.
+
+#### La banda repite la última ventana RR
+
+El H10 puede repetir en la notificación siguiente un RR que ya había
+enviado. El código ya lo contempla:
+
+- `PolarHrsProvider` emite una lectura por **cada** notificación, sin
+  throttle ni deduplicación.
+- `SensorOrchestrator` inserta una fila por emisión con un `local_id`
+  nuevo y el `timestamp` de recepción.
+- El backend es idempotente por `local_id`, no por contenido: dos filas con
+  el mismo BPM/RR quedan persistidas.
+- El frontend lo colapsa para graficar: `selectIBISeries` descarta IBIs
+  consecutivos idénticos y `dedupeConsecutivePolarReadings` descarta filas
+  con mismo `timestamp` + BPM + IBI.
+- `HomeViewModel` puede re-emitir el mismo BPM o la misma hora porque Room
+  invalida `lastHeartRate`/`lastTimestamp` en **cualquier** insert,
+  incluidas las tiras ECG.
+
+#### Diagnóstico
+
+Filas recientes con la señal identificada:
+
+```sql
+SELECT timestamp,
+       heart_rate_bpm,
+       ibis_ms,
+       ecg_uv IS NOT NULL AS es_ecg
+FROM clinical.measurements
+WHERE patient_id = '<uuid>'
+ORDER BY timestamp DESC
+LIMIT 20;
+```
+
+Agrupación por segundo:
+
+```sql
+SELECT date_trunc('second', timestamp) AS segundo,
+       count(*) AS filas,
+       count(*) FILTER (WHERE ecg_uv IS NOT NULL) AS ecg,
+       count(*) FILTER (WHERE ibis_ms IS NOT NULL) AS rr,
+       count(*) FILTER (WHERE heart_rate_bpm IS NOT NULL) AS bpm,
+       coalesce(sum(cardinality(ibis_ms)), 0) AS latidos
+FROM clinical.measurements
+WHERE patient_id = '<uuid>'
+GROUP BY 1
+ORDER BY 1 DESC
+LIMIT 20;
+```
+
+Lectura esperada:
+
+- `ecg = 1`, `rr = 1`, `bpm = 1` → normal: una fila de cada señal.
+- `rr > 1` → la banda notificó más de una vez en ese segundo.
+- `latidos > bpm` → una notificación trajo varios RR.
+- `filas` altas con `ibis_ms` idénticos → repetición de la ventana RR.
+- `ecg > 1` → revisar el chunker; en régimen debería ser una tira/s.
+
+Repeticiones exactas de contenido:
+
+```sql
+SELECT heart_rate_bpm,
+       ibis_ms,
+       count(*) AS veces,
+       min(timestamp) AS primera,
+       max(timestamp) AS ultima
+FROM clinical.measurements
+WHERE patient_id = '<uuid>'
+  AND ibis_ms IS NOT NULL
+GROUP BY heart_rate_bpm, ibis_ms
+HAVING count(*) > 1
+ORDER BY veces DESC;
+```
+
+Si `ibis_ms` y `heart_rate_bpm` se repiten con timestamps distintos, es la
+banda repitiendo la ventana. Si además el `timestamp` es idéntico, es una
+notificación duplicada.
+
+#### Qué hacer
+
+- **No borres las filas crudas:** son la trazabilidad de lo que mandó la
+  banda.
+- Deduplicá al leer: RR por IBIs consecutivos idénticos (como ya hace
+  `selectIBISeries`); ECG sin sumar tiras consecutivas como si fueran
+  independientes (se solapan 9 s).
+- Si necesitás una vista ya deduplicada para análisis, creá una `VIEW` o
+  una consulta con `DISTINCT ON` por ventana; no cambies la ingesta.
+
 ---
 
 ## 2. Propiedades de los datos
